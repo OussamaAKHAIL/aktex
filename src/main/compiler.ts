@@ -184,8 +184,9 @@ export async function compile(options: CompileOptions): Promise<void> {
   const projectDir = path.dirname(options.mainFile);
   const baseName = path.basename(options.mainFile, path.extname(options.mainFile));
   const executable = process.platform === 'win32' ? 'pdflatex.exe' : 'pdflatex';
-  let activeCompilerDir = options.compilerBinDir;
-  let pdflatex = path.join(activeCompilerDir, executable);
+  const activeCompilerDir = options.compilerBinDir;
+  const pdflatex = path.join(activeCompilerDir, executable);
+  const pdfPath = path.join(projectDir, `${baseName}.pdf`);
 
   const buildArgs = (dir: string): string[] => {
     const isMiktex = /miktex/i.test(dir);
@@ -193,46 +194,31 @@ export async function compile(options: CompileOptions): Promise<void> {
     return ['-synctex=1', '-interaction=nonstopmode', ...extraArgs, `-output-directory=${projectDir}`, options.mainFile];
   };
 
-  let latexArgs = buildArgs(activeCompilerDir);
+  const latexArgs = buildArgs(activeCompilerDir);
   options.onLog(`Running pdflatex -synctex=1 -interaction=nonstopmode ${path.basename(options.mainFile)} …`, 'info');
-  let exitCode = await runProcess(pdflatex, latexArgs, projectDir, options.onLog, activeCompilerDir);
+  const exitCode = await runProcess(pdflatex, latexArgs, projectDir, options.onLog, activeCompilerDir);
 
-  // If compilation failed with current compiler, attempt automatic recovery using an alternate working compiler
-  if (exitCode !== 0) {
-    if (/miktex/i.test(activeCompilerDir) && process.env.LOCALAPPDATA) {
-      const logFile = path.join(process.env.LOCALAPPDATA, 'MiKTeX', 'miktex', 'log', 'pdflatex.log');
-      try {
-        if (fs.existsSync(logFile)) {
-          const content = await fs.promises.readFile(logFile, 'utf8');
-          const errorLines = content.split(/\r?\n/).filter(Boolean).filter((l) => /error|fatal|denied|cannot/i.test(l)).slice(-3);
-          for (const line of errorLines) {
-            options.onLog(`[MiKTeX log] ${line}`, 'error');
-          }
-        }
-      } catch {
-        // Ignore log read errors
-      }
-    }
+  // KEY FIX: A non-zero exit code from pdflatex does NOT always mean failure.
+  // LaTeX returns non-zero for warnings (missing images, overfull boxes, etc.)
+  // but still produces a valid PDF. We check for the PDF file on disk as the
+  // true success criterion — not the exit code alone.
+  const pdfProduced = fs.existsSync(pdfPath);
 
-    const candidates = await findCompilerCandidates();
-    const alternate = candidates.find((c) => path.normalize(c).toLowerCase() !== path.normalize(activeCompilerDir).toLowerCase());
-    if (alternate && await canExecute(alternate)) {
-      options.onLog(`Primary compiler did not succeed. Automatically switching to: ${alternate} …`, 'warning');
-      activeCompilerDir = alternate;
-      pdflatex = path.join(activeCompilerDir, executable);
-      latexArgs = buildArgs(activeCompilerDir);
-      exitCode = await runProcess(pdflatex, latexArgs, projectDir, options.onLog, activeCompilerDir);
-      if (exitCode === 0 && options.onCompilerSwitched) {
-        options.onCompilerSwitched(alternate);
-      }
-    }
-  }
-
-  if (exitCode !== 0) {
+  if (!pdfProduced && exitCode !== 0) {
+    // Genuine failure: no PDF and non-zero exit code.
+    options.onLog('✗ Compilation failed. See errors above.', 'error');
     options.onDone(null, false);
     return;
   }
 
+  if (!pdfProduced && exitCode === 0) {
+    // Unexpected: exited cleanly but no PDF produced.
+    options.onLog('✗ pdflatex exited cleanly but no PDF was found. Check your document.', 'error');
+    options.onDone(null, false);
+    return;
+  }
+
+  // PDF exists — compilation succeeded (warnings are acceptable).
   const containsBibliography = (await fs.promises.readdir(projectDir)).some((file) => file.toLowerCase().endsWith('.bib'));
   if (containsBibliography) {
     const bcfFile = path.join(projectDir, `${baseName}.bcf`);
@@ -244,15 +230,17 @@ export async function compile(options: CompileOptions): Promise<void> {
       options.onLog(`Running ${path.basename(bibliographyTool, path.extname(bibliographyTool))} ${baseName} …`, 'info');
       await runProcess(bibliographyTool, [baseName], projectDir, options.onLog, activeCompilerDir);
       for (let pass = 0; pass < 2; pass += 1) {
-        if (await runProcess(pdflatex, latexArgs, projectDir, options.onLog, activeCompilerDir) !== 0) {
-          options.onDone(null, false);
-          return;
-        }
+        await runProcess(pdflatex, latexArgs, projectDir, options.onLog, activeCompilerDir);
       }
     }
   }
 
-  const pdfPath = path.join(projectDir, `${baseName}.pdf`);
-  const success = fs.existsSync(pdfPath);
-  options.onDone(success ? pdfPath : null, success);
+  const finalPdfExists = fs.existsSync(pdfPath);
+  if (finalPdfExists) {
+    options.onLog(`✓ Done — ${pdfPath}`, 'info');
+    options.onDone(pdfPath, true);
+  } else {
+    options.onLog('✗ Compilation failed. See errors above.', 'error');
+    options.onDone(null, false);
+  }
 }
