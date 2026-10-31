@@ -1,0 +1,42 @@
+{
+  "name": "aktext",
+  "version": "0.1.0",
+  "description": "AKTeX — Offline LaTeX editor for Windows",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "npm run build && concurrently \"tsc -p tsconfig.node.json -w\" \"node scripts/build-renderer.mjs --watch\" \"electron .\"",
+    "build": "tsc --noEmit && tsc -p tsconfig.node.json && node scripts/build-renderer.mjs",
+    "test": "npm run build && node scripts/smoke-test.cjs",
+    "dist": "npm run build && electron-builder",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "latex",
+    "editor",
+    "electron",
+    "offline"
+  ],
+  "author": "AKTeX contributors",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/unzipper": "^0.10.11",
+    "concurrently": "^8.0.0",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.0.0",
+    "@codemirror/commands": "^6.0.0",
+    "@codemirror/language": "^6.0.0",
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/theme-one-dark": "^6.0.0",
+    "@codemirror/view": "^6.0.0",
+    "archiver": "^6.0.0",
+    "codemirror": "^6.0.1",
+    "pdfjs-dist": "^4.0.0",
+    "unzipper": "^0.12.0"
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+release/
+*.js.map
+*.d.ts
+.DS_Store
+Thumbs.db
+*.aux
+*.log
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.out
+*.toc
+*.bbl
+*.blg
