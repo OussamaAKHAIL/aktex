@@ -60,7 +60,7 @@ export async function scrollToPosition(canvas: HTMLCanvasElement, page: number, 
   }
   const container = canvas.parentElement;
   if (container) {
-    const targetTop = canvas.offsetTop + (y * currentScale);
+    const targetTop = canvas.offsetTop + (y * currentScale + 3);
     container.scrollTo({
       top: Math.max(0, targetTop - container.clientHeight / 3),
       behavior: 'smooth',
