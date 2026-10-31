@@ -1,7 +1,7 @@
 // AKTeX — renderer orchestration. Electron is deliberately accessed only through preload.
 import { EditorView } from '@codemirror/view';
 import { getCursorLine, getEditorContent, initEditor, scrollEditorToLine, setEditorContent, triggerFind } from './editor/editor';
-import { attachSyncTexClickHandler, changePage, changeScale, getPdfState, loadPdf, scrollToPosition } from './pdf/viewer';
+import { changeScale, getPdfState, loadPdf, scrollToPosition, setSyncTexClickHandler } from './pdf/viewer';
 
 type LogType = 'info' | 'error' | 'warning';
 interface FileNode { name: string; path: string; isDirectory: boolean; children?: FileNode[]; }
@@ -31,7 +31,6 @@ declare global { interface Window { aktext: AKTeXApi; } }
 const editorElement = required<HTMLElement>('editor');
 const treeContent = required<HTMLElement>('tree-content');
 const logScroll = required<HTMLElement>('log-scroll');
-const canvas = required<HTMLCanvasElement>('pdf-canvas');
 const contextMenu = required<HTMLElement>('context-menu');
 let editor: EditorView;
 let project: ProjectPayload | null = null;
@@ -155,13 +154,15 @@ async function compileDocument(): Promise<void> {
 
 async function showPdf(pdfPath: string): Promise<void> {
   try {
-    activePdf = pdfPath; canvas.hidden = false; required<HTMLElement>('pdf-scroll').querySelector('.pdf-empty')?.remove();
-    updatePdfInfo(await loadPdf(canvas, pdfPath));
-  } catch (error) { canvas.hidden = true; addLog(`Could not load PDF preview: ${messageFor(error)}`, 'error'); }
+    activePdf = pdfPath;
+    const state = await loadPdf(pdfPath);
+    updatePdfInfo(state);
+  } catch (error) { addLog(`Could not load PDF preview: ${messageFor(error)}`, 'error'); }
 }
 
 function updatePdfInfo(state: { page: number; pages: number; scale: number }): void {
-  required<HTMLElement>('pdf-page-info').textContent = state.pages ? `${state.page} / ${state.pages}` : '— / —'; required<HTMLElement>('zoom-level').textContent = `${Math.round(state.scale * 100)}%`;
+  required<HTMLElement>('pdf-page-info').textContent = state.pages ? `${state.pages} pages` : '';
+  required<HTMLElement>('zoom-level').textContent = `${Math.round(state.scale * 100)}%`;
 }
 
 function messageFor(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -187,10 +188,8 @@ function wireUi(): void {
   required<HTMLButtonElement>('btn-tree-new').addEventListener('click', () => { if (project) void executeNewFile(project.path); });
   required<HTMLButtonElement>('btn-find').addEventListener('click', () => triggerFind());
   required<HTMLButtonElement>('btn-compiler-help').addEventListener('click', () => window.aktext.openCompilerHelp());
-  required<HTMLButtonElement>('btn-prev-page').addEventListener('click', () => { void changePage(canvas, -1).then(updatePdfInfo); });
-  required<HTMLButtonElement>('btn-next-page').addEventListener('click', () => { void changePage(canvas, 1).then(updatePdfInfo); });
-  required<HTMLButtonElement>('btn-zoom-out').addEventListener('click', () => { void changeScale(canvas, -.1).then(updatePdfInfo); });
-  required<HTMLButtonElement>('btn-zoom-in').addEventListener('click', () => { void changeScale(canvas, .1).then(updatePdfInfo); });
+  required<HTMLButtonElement>('btn-zoom-out').addEventListener('click', () => { void changeScale(-.1).then(updatePdfInfo); });
+  required<HTMLButtonElement>('btn-zoom-in').addEventListener('click', () => { void changeScale(.1).then(updatePdfInfo); });
   document.querySelector('.traffic.close')?.addEventListener('click', () => window.aktext.closeWindow());
   document.querySelector('.traffic.min')?.addEventListener('click', () => window.aktext.minimizeWindow());
   document.querySelector('.traffic.max')?.addEventListener('click', () => window.aktext.maximizeWindow());
@@ -218,21 +217,26 @@ function initialise(): void {
     cursorTimer = window.setTimeout(() => window.aktext.syncToPdf(activeFile as string, line), 350);
   });
   renderTabs(); wireUi();
-  attachSyncTexClickHandler(canvas, (page, x, y) => { if (activePdf) window.aktext.syncToEditor(activePdf, page, x, y); });
+
+  // SyncTeX: PDF click → editor (uses new API, no canvas arg needed)
+  setSyncTexClickHandler((page, x, y) => { if (activePdf) window.aktext.syncToEditor(activePdf, page, x, y); });
+
   window.aktext.onCompileLog(addLog);
-  window.aktext.onCompileDone((pdfPath, success) => { required<HTMLButtonElement>('btn-compile').disabled = false; required<HTMLButtonElement>('btn-stop').disabled = true; if (success && pdfPath) { addLog(`✓ Compilation successful — Output: ${fileName(pdfPath)}`, 'info'); void showPdf(pdfPath); } else addLog('✗ Compilation failed. See errors above.', 'error'); });
+  window.aktext.onCompileDone((pdfPath, success) => {
+    required<HTMLButtonElement>('btn-compile').disabled = false;
+    required<HTMLButtonElement>('btn-stop').disabled = true;
+    if (success && pdfPath) { addLog(`✓ Compilation successful — Output: ${fileName(pdfPath)}`, 'info'); void showPdf(pdfPath); }
+    else addLog('✗ Compilation failed. See errors above.', 'error');
+  });
   const setCompilerStatus = (available: boolean, label: string): void => { required<HTMLElement>('compiler-label').textContent = label; required<HTMLElement>('status-dot').className = `status-dot ${available ? 'ready' : 'error'}`; };
   window.aktext.onCompilerStatus(setCompilerStatus);
   void window.aktext.getCompilerStatus().then((status) => setCompilerStatus(status.available, status.label));
   window.aktext.onSyncToEditor((file, line) => {
     const norm = (p: string | null): string => (p ?? '').replace(/\\/g, '/').toLowerCase();
-    if (norm(file) === norm(activeFile)) {
-      scrollEditorToLine(line);
-    } else {
-      void openFile(file).then(() => scrollEditorToLine(line));
-    }
+    if (norm(file) === norm(activeFile)) { scrollEditorToLine(line); }
+    else { void openFile(file).then(() => scrollEditorToLine(line)); }
   });
-  window.aktext.onPdfPosition((page, x, y) => { void scrollToPosition(canvas, page, x, y).then(() => updatePdfInfo(getPdfState())); });
+  window.aktext.onPdfPosition((page, x, y) => { void scrollToPosition(page, x, y).then(() => updatePdfInfo(getPdfState())); });
 }
 
 initialise();
