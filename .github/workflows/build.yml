@@ -23,7 +23,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
+        
+      - name: Install type definitions        # ← add this
+        run: npm install --save-dev @types/archiver
+        
       - name: Build TypeScript
         run: npm run build
 
