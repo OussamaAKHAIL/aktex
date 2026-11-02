@@ -1,13 +1,11 @@
 // AKTeX — CodeMirror 6 Editor Setup
-// Codex: initialize CodeMirror with LaTeX support, dark theme, and autocomplete.
 
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import { openSearchPanel, search, searchKeymap } from '@codemirror/search';
-import { oneDark } from '@codemirror/theme-one-dark';
-import { latexCompletions } from './latex-lang';
+import { latexCompletions, latexExtension } from './latex-lang';
 
 let view: EditorView | null = null;
 
@@ -26,7 +24,7 @@ export function initEditor(
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap]),
       autocompletion({ override: [latexCompletions] }),
-      oneDark,
+      latexExtension,
       EditorView.updateListener.of((update) => {
         if (update.docChanged && onChange) {
           onChange(update.state.doc.toString());
@@ -43,6 +41,9 @@ export function initEditor(
         '.cm-scroller': { fontFamily: 'JetBrains Mono, Fira Code, Consolas, monospace' },
         '.cm-content': { caretColor: '#e08535' },
         '.cm-cursor': { borderLeftColor: '#e08535' },
+        // Selection
+        '.cm-selectionBackground': { backgroundColor: 'rgba(200,116,42,0.25) !important' },
+        '&.cm-focused .cm-selectionBackground': { backgroundColor: 'rgba(200,116,42,0.3) !important' },
       }),
     ],
   });
