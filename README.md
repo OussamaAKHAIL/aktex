@@ -133,6 +133,15 @@ Every push to `main` triggers a GitHub Actions workflow that compiles the projec
 
 ---
 
+## Contributors
+
+| | Name | Role |
+|---|---|---|
+| 👤 | [Oussama AKHAIL](https://github.com/OussamaAKHAIL) | Creator & Lead Developer |
+| 🤖 | [Claude Sonnet 4.6](https://claude.ai) (Anthropic) | AI Pair Programmer |
+
+---
+
 ## License
 
 MIT © [Oussama AKHAIL](https://github.com/OussamaAKHAIL)
