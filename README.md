@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="AKTeX Logo" width="340"/>
+  <img src="assets/launching logo.png" alt="AKTeX Logo" width="340"/>
 </p>
 
 <h1 align="center">AKTeX</h1>
