@@ -415,11 +415,28 @@ function attachListeners(): void {
   }, { passive: true });
 
   // Delegated click / double-click on pages (including the text layer).
+  let downPoint: { x: number; y: number } | null = null;
+  container.addEventListener('mousedown', (event) => {
+    downPoint = { x: event.clientX, y: event.clientY };
+  });
+
   container.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
     if (target.closest('.pdf-synctex-highlight, .pdf-sync-marker')) return;
     const wrapper = target.closest<HTMLElement>('.pdf-page-wrapper');
     if (!wrapper) return;
+
+    // A drag that selects text also fires `click` on mouseup. Do not treat a
+    // selection gesture as a sync anchor: the user is selecting/copying text,
+    // not asking the app to wait for the PDF→code second click.
+    const movement = downPoint
+      ? Math.hypot(event.clientX - downPoint.x, event.clientY - downPoint.y)
+      : 0;
+    downPoint = null;
+    if (movement > 5) return;
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) return;
+
     const position = positionFromEvent(wrapper, event);
     if (!position) return;
     // A single click only drops an anchor; it never jumps by itself.
@@ -675,7 +692,15 @@ export async function scrollToPosition(
   // Prefer an exact highlight over the text layer when the source text can be
   // found on the page. SyncTeX's enclosing box is often the full paragraph
   // width, which would otherwise place a short selection too far to the right.
-  if (sourceText && await highlightTextInPdf(page, sourceText, y)) return;
+  // Multi-line selections are handled by the per-line SyncTeX boxes instead,
+  // because the text layer cannot reliably map a selection that crosses lines.
+  if (sourceText && !sourceText.includes('\n')) {
+    try {
+      if (await highlightTextInPdf(page, sourceText, y)) return;
+    } catch {
+      // Fall through to the box-based highlight on any text-layer failure.
+    }
+  }
   if (boxes && boxes.length > 0) showSyncHighlights(boxes);
   else showSyncMarker(page, x, y, 4500);
 }

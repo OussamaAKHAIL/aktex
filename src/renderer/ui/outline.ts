@@ -1,17 +1,23 @@
 // AKTeX — document outline widget.
 //
-// The outline deliberately parses LaTeX source text instead of relying on the
-// compiler: it updates while typing, works without a compiled PDF, and is
-// cheap enough to run on every debounced edit.
+// The outline parses LaTeX source text instead of relying on the compiler: it
+// updates while typing, works without a compiled PDF, and is cheap enough to
+// run on every debounced edit.
+//
+// For a project it walks `\input` / `\include` / `\subfile` directives
+// recursively, so the whole document structure (chapters, sections, …) shows
+// up even when the content lives in separate `.tex` files.
 
 export interface OutlineEntry {
   level: number;
   title: string;
   line: number;
   command: string;
+  file: string;
 }
 
 const SECTION_RE = /^\s*\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\s*(?:\[[^\]]*\])?\s*\{/;
+const INCLUDE_RE = /^\s*\\(include|input|subfile)\s*\{([^{}]*)\}/;
 const LEVELS: Record<string, number> = {
   part: 0,
   chapter: 1,
@@ -59,29 +65,111 @@ export function cleanTitle(raw: string): string {
   return title || 'Untitled section';
 }
 
-export function parseOutline(source: string): OutlineEntry[] {
-  const entries: OutlineEntry[] = [];
-  const lines = source.split(/\r?\n/);
+function separatorOf(filePath: string): string {
+  return filePath.includes('\\') ? '\\' : '/';
+}
 
+function dirOf(filePath: string): string {
+  const separator = separatorOf(filePath);
+  const index = filePath.lastIndexOf(separator);
+  return index >= 0 ? filePath.slice(0, index) : '.';
+}
+
+function joinPath(baseDir: string, name: string): string {
+  const separator = separatorOf(baseDir);
+  return `${baseDir}${separator}${name.replace(/[\\/]/g, separator)}`;
+}
+
+function candidatesFor(baseDir: string, rawTarget: string): string[] {
+  const target = rawTarget.trim();
+  const hasExtension = /\.[a-zA-Z0-9]+$/.test(target);
+  const names = hasExtension ? [target] : [`${target}.tex`, target];
+  return names.map((name) => joinPath(baseDir, name));
+}
+
+function parseFileEntries(content: string, file: string): OutlineEntry[] {
+  const entries: OutlineEntry[] = [];
+  const lines = content.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
     const line = stripComment(lines[index]);
     const match = SECTION_RE.exec(line);
     if (!match) continue;
-    const command = match[1];
     const braceIndex = line.indexOf('{', match.index + match[0].length - 1);
     if (braceIndex < 0) continue;
-    const rawTitle = readBraced(line, braceIndex);
     entries.push({
-      level: LEVELS[command] ?? 2,
-      title: cleanTitle(rawTitle),
+      level: LEVELS[match[1]] ?? 2,
+      title: cleanTitle(readBraced(line, braceIndex)),
       line: index + 1,
-      command,
+      command: match[1],
+      file,
     });
   }
+  return entries;
+}
+
+export type OutlineReader = (filePath: string) => Promise<string>;
+
+/** Build the full project outline, following `\input` / `\include` / `\subfile`. */
+export async function buildProjectOutline(rootFile: string, readFile: OutlineReader): Promise<OutlineEntry[]> {
+  const entries: OutlineEntry[] = [];
+  const processed = new Set<string>();
+  const keyOf = (file: string): string => file.replace(/[\\/]/g, '/').toLowerCase();
+
+  const processContent = async (file: string, content: string): Promise<void> => {
+    const lines = content.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = stripComment(lines[index]);
+
+      const include = INCLUDE_RE.exec(line);
+      if (include) {
+        for (const candidate of candidatesFor(dirOf(file), include[2])) {
+          const key = keyOf(candidate);
+          if (processed.has(key)) continue;
+          let included: string;
+          try {
+            included = await readFile(candidate);
+          } catch {
+            continue;
+          }
+          processed.add(key);
+          await processContent(candidate, included);
+          break; // Use the first candidate that actually exists.
+        }
+        continue;
+      }
+
+      const section = SECTION_RE.exec(line);
+      if (!section) continue;
+      const braceIndex = line.indexOf('{', section.index + section[0].length - 1);
+      if (braceIndex < 0) continue;
+      entries.push({
+        level: LEVELS[section[1]] ?? 2,
+        title: cleanTitle(readBraced(line, braceIndex)),
+        line: index + 1,
+        command: section[1],
+        file,
+      });
+    }
+  };
+
+  let root: string;
+  try {
+    root = await readFile(rootFile);
+  } catch {
+    root = '';
+  }
+  processed.add(keyOf(rootFile));
+  await processContent(rootFile, root);
 
   if (entries.length === 0) return entries;
-  // Normalise against the shallowest heading in this document so a file that
-  // starts at \section does not render with four empty indentation levels.
+  const minLevel = Math.min(...entries.map((entry) => entry.level));
+  return entries.map((entry) => ({ ...entry, level: entry.level - minLevel }));
+}
+
+/** Single-file parse kept for callers that don't need include resolution. */
+export function parseOutline(source: string): OutlineEntry[] {
+  const entries = parseFileEntries(source, '');
+  if (entries.length === 0) return entries;
   const minLevel = Math.min(...entries.map((entry) => entry.level));
   return entries.map((entry) => ({ ...entry, level: entry.level - minLevel }));
 }
@@ -89,7 +177,7 @@ export function parseOutline(source: string): OutlineEntry[] {
 export function renderOutline(
   container: HTMLElement,
   entries: OutlineEntry[],
-  onSelect: (line: number) => void,
+  onSelect: (entry: OutlineEntry) => void,
 ): void {
   container.replaceChildren();
   if (entries.length === 0) {
@@ -106,7 +194,8 @@ export function renderOutline(
     item.type = 'button';
     item.className = `outline-item level-${entry.level}`;
     item.style.paddingLeft = `${10 + entry.level * 11}px`;
-    item.title = `${entry.title} — line ${entry.line}`;
+    item.title = `${entry.title} — ${entry.file}:${entry.line}`;
+    item.dataset.file = entry.file;
     item.dataset.line = String(entry.line);
 
     const label = document.createElement('span');
@@ -118,19 +207,25 @@ export function renderOutline(
     line.textContent = String(entry.line);
 
     item.append(label, line);
-    item.addEventListener('click', () => onSelect(entry.line));
+    item.addEventListener('click', () => onSelect(entry));
     fragment.appendChild(item);
   }
   container.appendChild(fragment);
 }
 
 /** Attach a delegated keyboard handler for the outline list. */
-export function wireOutlineSelection(container: HTMLElement, onSelect: (line: number) => void): void {
+export function wireOutlineSelection(container: HTMLElement, onSelect: (entry: OutlineEntry) => void): void {
   container.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     const target = event.target as HTMLElement;
     if (!target.classList.contains('outline-item')) return;
     event.preventDefault();
-    onSelect(Number(target.dataset.line ?? '1'));
+    onSelect({
+      level: 0,
+      title: target.querySelector('.outline-title')?.textContent ?? '',
+      line: Number(target.dataset.line ?? '1'),
+      command: '',
+      file: target.dataset.file ?? '',
+    });
   });
 }

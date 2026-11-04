@@ -188,7 +188,7 @@ function safeRender(tex: string, displayMode = false): string {
   try {
     return katex.renderToString(tex, {
       displayMode,
-      throwOnError: false,
+      throwOnError: true,
       strict: 'ignore',
       trust: false,
       output: 'html',
@@ -380,22 +380,25 @@ export function openFormulaEditor(options: FormulaToolsOptions): void {
 
   const updatePreview = (): void => {
     const raw = textarea.value.trim();
-    errorBox.textContent = '';
     if (!raw) {
       preview.innerHTML = '<span class="hint">Formula preview</span>';
+      errorBox.textContent = '';
       return;
     }
     try {
-      katex.render(raw, preview, {
+      const html = katex.renderToString(raw, {
         displayMode: styleBlock,
         throwOnError: true,
         strict: 'ignore',
         trust: false,
+        output: 'html',
       });
+      preview.innerHTML = html;
+      errorBox.textContent = '';
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      errorBox.textContent = message;
-      preview.innerHTML = safeRender(raw, styleBlock);
+      errorBox.textContent = `⚠ ${message}`;
+      preview.innerHTML = '<span class="hint">Preview unavailable while the LaTeX is incomplete.</span>';
     }
   };
 
@@ -631,6 +634,45 @@ let viewerElement: HTMLElement | null = null;
 export function closeFormulaViewer(): void {
   viewerElement?.remove();
   viewerElement = null;
+}
+
+// ── Hover preview ─────────────────────────────────────────────────────────────
+
+let hoverElement: HTMLElement | null = null;
+
+export function hideFormulaHover(): void {
+  hoverElement?.remove();
+  hoverElement = null;
+}
+
+export function showFormulaHover(latex: string, display: boolean, clientX: number, clientY: number): void {
+  hideFormulaHover();
+  let html: string;
+  try {
+    html = katex.renderToString(latex, {
+      displayMode: display,
+      throwOnError: true,
+      strict: 'ignore',
+      trust: false,
+      output: 'html',
+    });
+  } catch {
+    return; // Never show a broken preview for invalid math.
+  }
+
+  const popover = document.createElement('div');
+  popover.className = 'formula-hover';
+  popover.innerHTML = html;
+  document.body.appendChild(popover);
+  hoverElement = popover;
+
+  const rect = popover.getBoundingClientRect();
+  let left = clientX + 12;
+  let top = clientY + 12;
+  if (left + rect.width > window.innerWidth - 8) left = clientX - rect.width - 12;
+  if (top + rect.height > window.innerHeight - 8) top = clientY - rect.height - 12;
+  popover.style.left = `${Math.max(8, left)}px`;
+  popover.style.top = `${Math.max(8, top)}px`;
 }
 
 export function openFormulaViewer(selection: string, anchor: HTMLElement | null): void {

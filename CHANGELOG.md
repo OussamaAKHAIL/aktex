@@ -1,6 +1,34 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.2] - 2026-11-04
+
+### Added
+- **Multi-file tabs** — open `main.tex`, `chap1.tex`, etc. at the same time and
+  switch between them with close buttons, Chrome/Windows style. Each tab keeps
+  its own in-memory buffer and autosaves on switch.
+- **Include-aware outline** — the outline now follows `\input`, `\include` and
+  `\subfile` recursively, so the full document structure shows even when
+  chapters live in separate `.tex` files. Clicking an entry opens the right
+  file and jumps to the heading.
+- **Hover-to-preview math** — hovering over an inline/display equation in the
+  editor shows a KaTeX preview near the cursor.
+
+### Fixed
+- **PDF text selection** — selecting text in the PDF no longer drops a SyncTeX
+  anchor or starts waiting for the PDF→code second click. Only a clean click
+  (no drag, no selection) arms the sync target.
+- **Multi-line SyncTeX highlight** — a code→PDF selection spanning two or more
+  lines now highlights every selected line (previously it could fail because
+  the single-text search could not map across line breaks).
+- **Formula preview errors** — the formula editor no longer renders a broken red
+  KaTeX error inside the preview; it shows a friendly “preview unavailable”
+  placeholder plus the error message below.
+- **App icon** — `AKTeX.exe` now embeds the AKTeX icon via an `afterPack`
+  rcedit hook instead of showing Electron's default icon (taskbar/explorer).
+- **Title bar logo** — the title bar now shows the actual `logo.png` asset
+  instead of the text wordmark.
+
+## [0.1.1] - 2026-11-04
 
 ### Added
 - Initial project scaffold with Electron + TypeScript

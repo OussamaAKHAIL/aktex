@@ -156,6 +156,32 @@ function createWindow(): void {
             `);
             await new Promise((resolve) => setTimeout(resolve, 1800));
           }
+          if (process.argv.includes('--sync-multi')) {
+            await mainWindow?.webContents.executeJavaScript(`
+              (() => {
+                const view = window.__aktexEditorView;
+                if (view) {
+                  const start = view.state.doc.line(5).from + 10;
+                  const end = view.state.doc.line(7).from + 10;
+                  view.dispatch({ selection: { anchor: start, head: end }, scrollIntoView: true });
+                }
+                document.getElementById('btn-code-to-pdf')?.click();
+              })()
+            `);
+            await new Promise((resolve) => setTimeout(resolve, 2400));
+          }
+          for (const argument of process.argv) {
+            if (!argument.startsWith('--open-tex=')) continue;
+            const name = argument.slice('--open-tex='.length);
+            await mainWindow?.webContents.executeJavaScript(`
+              (() => {
+                const item = [...document.querySelectorAll('.tree-item')]
+                  .find((el) => el.getAttribute('title')?.endsWith(${JSON.stringify(name)}));
+                item?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              })()
+            `);
+            await new Promise((resolve) => setTimeout(resolve, 400));
+          }
           if (openTool === 'formula') {
             await mainWindow?.webContents.executeJavaScript(
               "document.getElementById('btn-formula-editor')?.click()",
@@ -174,6 +200,19 @@ function createWindow(): void {
               await new Promise((resolve) => setTimeout(resolve, 800));
             }
             await new Promise((resolve) => setTimeout(resolve, 400));
+          }
+          if (process.argv.includes('--dump-state')) {
+            const state = await mainWindow?.webContents.executeJavaScript(`
+              (() => ({
+                tabs: [...document.querySelectorAll('#tab-bar .tab')].map((el) => el.textContent.trim()),
+                outline: [...document.querySelectorAll('#outline-content .outline-item')].map((el) => el.textContent.trim()),
+                logo: document.querySelector('#wordmark img')?.getAttribute('src') ?? null,
+                activePath: document.getElementById('active-path')?.textContent ?? null,
+                highlights: document.querySelectorAll('.pdf-synctex-highlight').length,
+                pages: document.querySelectorAll('.pdf-page-wrapper').length,
+              }))()
+            `);
+            console.log('[STATE]', JSON.stringify(state));
           }
           const image = await mainWindow?.webContents.capturePage();
           if (image) await fs.promises.writeFile(path.resolve(screenshotPath), image.toPNG());

@@ -119,14 +119,19 @@
     .max { background: #5cad6e; }
 
     #wordmark {
-      color: var(--text-primary);
-      font: 700 16px var(--font-display);
-      letter-spacing: -.02em;
+      display: flex;
+      align-items: center;
+      height: 20px;
       -webkit-app-region: no-drag;
-      white-space: nowrap;
     }
 
-    #wordmark .x { color: var(--accent); }
+    #wordmark img {
+      height: 20px;
+      width: auto;
+      display: block;
+      object-fit: contain;
+      pointer-events: none;
+    }
 
     #active-path {
       margin-left: auto;
@@ -1523,6 +1528,25 @@
     .formula-popover-code { border-top: 1px solid var(--border); padding: 8px 12px; color: var(--text-dim); font: 10px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow: auto; }
     .formula-popover-foot { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
 
+    /* Formula hover preview (editor) */
+    .formula-hover {
+      position: fixed;
+      z-index: 700;
+      pointer-events: none;
+      background: #161616;
+      border: 1px solid #3a3a3a;
+      border-radius: 7px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, .6);
+      padding: 9px 13px;
+      color: #f2eee5;
+      max-width: 560px;
+      max-height: 220px;
+      overflow: auto;
+    }
+
+    .formula-hover .katex { font-size: 1.05em; }
+
+
     /* Toast */
     #toast-root {
       position: fixed;
@@ -1634,7 +1658,7 @@
         <i class="traffic min" title="Minimize" role="button" aria-label="Minimize window"></i>
         <i class="traffic max" title="Maximize" role="button" aria-label="Maximize window"></i>
       </div>
-      <div id="wordmark">Ak<i>Te</i><span class="x">X</span></div>
+      <div id="wordmark"><img src="logo.png" alt="AKTeX" draggable="false" /></div>
       <span id="active-path">Untitled — AKTeX</span>
       <div class="titlebar-actions">
         <button class="icon-btn" id="btn-toggle-log-title" title="Show / hide log panel" aria-label="Show or hide log panel">

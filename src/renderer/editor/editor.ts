@@ -189,6 +189,13 @@ export function getCursorPosition(): { line: number; ch: number } {
   return { line: line.number, ch: pos - line.from };
 }
 
+export function getLineAtCoords(x: number, y: number): number | null {
+  if (!view) return null;
+  const pos = view.posAtCoords({ x, y });
+  if (pos === null) return null;
+  return view.state.doc.lineAt(pos).number;
+}
+
 export function insertTextAtCursor(text: string): void {
   if (!view) return;
   const selection = view.state.selection.main;
