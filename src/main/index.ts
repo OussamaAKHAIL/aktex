@@ -5,7 +5,7 @@ import * as path from 'path';
 import archiver = require('archiver');
 import unzipper from 'unzipper';
 import { compile, detectCompiler, LogType, stopCompilation } from './compiler';
-import { editFromPdf, viewInPdf } from './synctex';
+import { editFromPdf, viewInPdf, viewRangeInPdf } from './synctex';
 
 interface FileNode {
   name: string;
@@ -23,6 +23,13 @@ interface ProjectPayload {
 let mainWindow: BrowserWindow | null = null;
 let currentProject: string | null = null;
 let compilerDirectory: string | null = null;
+
+function argumentValue(prefix: string): string | null {
+  const entry = process.argv.find((argument) => argument.startsWith(`${prefix}=`));
+  if (!entry) return null;
+  const value = entry.slice(prefix.length + 1).trim();
+  return value.length > 0 ? value : null;
+}
 
 function getWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
@@ -68,8 +75,10 @@ function createWindow(): void {
     height: 920,
     minWidth: 960,
     minHeight: 650,
+    show: false,
     backgroundColor: '#141414',
     titleBarStyle: 'hidden',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
@@ -78,7 +87,105 @@ function createWindow(): void {
     icon: iconPath,
     title: 'AKTeX',
   });
+  const showWindow = (): void => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+  };
+
+  // `ready-to-show` is the normal path, but a renderer/preload failure should
+  // never leave the user with an invisible application. These fallbacks make
+  // startup problems visible instead of looking like "npm run dev did nothing".
+  mainWindow.once('ready-to-show', showWindow);
+  mainWindow.webContents.once('did-finish-load', () => setTimeout(showWindow, 150));
+  setTimeout(showWindow, 2500);
+
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    console.error(`[AKTeX] Renderer failed to load (${code}): ${description} — ${url}`);
+    showWindow();
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`[AKTeX] Renderer process exited: ${details.reason} (${details.exitCode})`);
+  });
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    console.error(`[AKTeX] Preload failed (${preloadPath}):`, error);
+  });
+
   void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+
+  const screenshotPath = argumentValue('--screenshot');
+  if (screenshotPath) {
+    mainWindow.webContents.on('console-message', (_event, level, message) => {
+      if (level >= 2) console.log(`[renderer:${level}] ${message}`);
+    });
+    mainWindow.webContents.once('did-finish-load', () => {
+      const openTool = argumentValue('--open-tool');
+      const shouldCompile = process.argv.includes('--compile');
+      const shouldSync = process.argv.includes('--sync');
+      const shouldZoom = process.argv.includes('--zoom');
+      const requestedDelay = Number(argumentValue('--shot-delay') ?? '3600');
+      const shotDelay = Number.isFinite(requestedDelay) ? Math.max(250, requestedDelay) : 3600;
+      setTimeout(async () => {
+        try {
+          if (shouldCompile) {
+            await mainWindow?.webContents.executeJavaScript(
+              "document.getElementById('btn-compile')?.click()",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 5500));
+          }
+          if (shouldZoom) {
+            await mainWindow?.webContents.executeJavaScript(
+              "document.getElementById('btn-zoom-in')?.click(); document.getElementById('btn-zoom-in')?.click();",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+          if (shouldSync) {
+            await mainWindow?.webContents.executeJavaScript(`
+              (() => {
+                const view = window.__aktexEditorView;
+                if (view) {
+                  const line = view.state.doc.line(5);
+                  view.dispatch({
+                    selection: {
+                      anchor: line.from + Math.min(20, line.length),
+                      head: line.from + Math.min(23, line.length),
+                    },
+                    scrollIntoView: true,
+                  });
+                }
+                document.getElementById('btn-code-to-pdf')?.click();
+              })()
+            `);
+            await new Promise((resolve) => setTimeout(resolve, 1800));
+          }
+          if (openTool === 'formula') {
+            await mainWindow?.webContents.executeJavaScript(
+              "document.getElementById('btn-formula-editor')?.click()",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            if (process.argv.includes('--formula-demo')) {
+              await mainWindow?.webContents.executeJavaScript(`
+                (() => {
+                  const input = document.querySelector('.formula-input');
+                  if (input) {
+                    input.value = '\\\\frac{a}{b} = \\\\sqrt{x^2 + 1}';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                  }
+                })()
+              `);
+              await new Promise((resolve) => setTimeout(resolve, 800));
+            }
+            await new Promise((resolve) => setTimeout(resolve, 400));
+          }
+          const image = await mainWindow?.webContents.capturePage();
+          if (image) await fs.promises.writeFile(path.resolve(screenshotPath), image.toPNG());
+          console.log(`[AKTeX] Screenshot written to ${screenshotPath}`);
+        } catch (error) {
+          console.error('[AKTeX] Screenshot failed:', error);
+        } finally {
+          app.exit(0);
+        }
+      }, shotDelay);
+    });
+  }
 }
 
 function reportCompilerStatus(directory: string | null): void {
@@ -126,6 +233,7 @@ function registerIpc(): void {
     return projectPayload(currentProject);
   });
   ipcMain.handle('project:refresh', async (): Promise<ProjectPayload | null> => currentProject ? projectPayload(currentProject) : null);
+  ipcMain.handle('project:current', async (): Promise<ProjectPayload | null> => currentProject ? projectPayload(currentProject) : null);
 
   ipcMain.handle('file:read', async (_event, filePath: string): Promise<string> => fs.promises.readFile(filePath, 'utf8'));
   ipcMain.handle('file:open', async (_event, data: { path: string } | string): Promise<string> => {
@@ -158,6 +266,53 @@ function registerIpc(): void {
     return true;
   });
 
+  ipcMain.handle('image:pick', async (): Promise<{ path: string; name: string } | null> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Insert image',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return { path: result.filePaths[0], name: path.basename(result.filePaths[0]) };
+  });
+
+  ipcMain.handle('image:import', async (
+    _event,
+    data: { sourcePath: string; projectPath: string | null },
+  ): Promise<{ absolutePath: string; relativePath: string } | null> => {
+    if (!data.projectPath) return null;
+    const source = path.resolve(data.sourcePath);
+    if (!fs.existsSync(source)) throw new Error('The selected image no longer exists.');
+
+    const relativeToProject = path.relative(data.projectPath, source);
+    if (relativeToProject && !relativeToProject.startsWith('..') && !path.isAbsolute(relativeToProject)) {
+      return {
+        absolutePath: source,
+        relativePath: relativeToProject.replace(/\\/g, '/'),
+      };
+    }
+
+    const figures = path.join(data.projectPath, 'figures');
+    await fs.promises.mkdir(figures, { recursive: true });
+    const base = path.basename(source).replace(/[^a-zA-Z0-9._-]+/g, '-');
+    const extension = path.extname(base);
+    const stem = path.basename(base, extension) || 'image';
+    let target = path.join(figures, `${stem}${extension}`);
+    let counter = 2;
+    while (fs.existsSync(target)) {
+      target = path.join(figures, `${stem}-${counter}${extension}`);
+      counter += 1;
+    }
+    await fs.promises.copyFile(source, target);
+    return {
+      absolutePath: target,
+      relativePath: path.relative(data.projectPath, target).replace(/\\/g, '/'),
+    };
+  });
+
   ipcMain.handle('project:export-zip', async (): Promise<boolean> => {
     const projectDirectory = currentProject;
     if (!projectDirectory) return false;
@@ -187,23 +342,44 @@ function registerIpc(): void {
     return projectPayload(target);
   });
 
-  ipcMain.on('synctex:toPdf', (_event, data: { file: string; line: number }) => {
+  ipcMain.on('synctex:toPdf', (_event, data: {
+    file: string;
+    startLine: number;
+    startCh: number;
+    endLine: number;
+    endCh: number;
+  }) => {
     if (!compilerDirectory) return;
-    let pdfFile = data.file.replace(/\.tex$/i, '.pdf');
-    if (!fs.existsSync(pdfFile) && currentProject) {
-      const preferred = path.join(currentProject, 'main.pdf');
-      if (fs.existsSync(preferred)) {
-        pdfFile = preferred;
+    const sibling = data.file.replace(/\.tex$/i, '.pdf');
+    const projectPdf = currentProject ? path.join(currentProject, 'main.pdf') : null;
+    const pdfFile = projectPdf && fs.existsSync(projectPdf)
+      ? projectPdf
+      : (fs.existsSync(sibling) ? sibling : projectPdf ?? sibling);
+    void viewRangeInPdf(
+      compilerDirectory,
+      data.file,
+      data.startLine,
+      data.startCh,
+      data.endLine,
+      data.endCh,
+      pdfFile,
+    ).then((result) => {
+      if (result) {
+        getWindow()?.webContents.send('synctex:pdfPosition', result);
+      } else {
+        getWindow()?.webContents.send('synctex:failed', {
+          message: 'SyncTeX could not find that source position. Compile with SyncTeX enabled and try again.',
+        });
       }
-    }
-    void viewInPdf(compilerDirectory, data.file, data.line, 1, pdfFile).then((result) => {
-      if (result) getWindow()?.webContents.send('synctex:pdfPosition', result);
     });
   });
   ipcMain.on('synctex:toEditor', (_event, data: { pdfPath: string; page: number; x: number; y: number }) => {
     if (!compilerDirectory) return;
     void editFromPdf(compilerDirectory, data.pdfPath, data.page, data.x, data.y).then((result) => {
       if (result) getWindow()?.webContents.send('synctex:toEditor', result);
+      else getWindow()?.webContents.send('synctex:failed', {
+        message: 'SyncTeX could not resolve that PDF position. Compile with SyncTeX enabled and try again.',
+      });
     });
   });
   ipcMain.on('compiler:install-help', () => { void shell.openExternal('https://miktex.org'); });
@@ -334,14 +510,18 @@ async function runSmokeTest(): Promise<void> {
     ({
       hasAktext: Boolean(window.aktext),
       hasEditor: Boolean(document.querySelector('.cm-editor')),
-      hasCanvas: Boolean(document.getElementById('pdf-canvas')),
+      hasPdfPane: Boolean(document.getElementById('pdf-scroll')),
+      hasCodeToolbar: Boolean(document.getElementById('code-toolbar')),
+      hasOutline: Boolean(document.getElementById('outline-content')),
+      hasSplash: Boolean(document.getElementById('splash')),
       hasToolbar: Boolean(document.getElementById('toolbar')),
       title: document.title,
     })
   `);
   testWin.destroy();
 
-  if (!windowState.hasAktext || !windowState.hasEditor || !windowState.hasCanvas) {
+  if (!windowState.hasAktext || !windowState.hasEditor || !windowState.hasPdfPane
+    || !windowState.hasCodeToolbar || !windowState.hasOutline || !windowState.hasToolbar) {
     throw new Error('Renderer UI failed to mount properly: ' + JSON.stringify(windowState));
   }
   if (rendererErrors.length > 0) {
@@ -361,6 +541,9 @@ async function runSmokeTest(): Promise<void> {
 app.whenReady().then(async () => {
   registerIpc();
 
+  const initialProject = argumentValue('--project');
+  if (initialProject) currentProject = path.resolve(initialProject);
+
   if (process.argv.includes('--smoke-test')) {
     try {
       await runSmokeTest();
@@ -375,7 +558,7 @@ app.whenReady().then(async () => {
   createWindow();
   compilerDirectory = await detectCompiler();
   reportCompilerStatus(compilerDirectory);
-  if (!compilerDirectory) {
+  if (!compilerDirectory && !argumentValue('--screenshot')) {
     const response = await dialog.showMessageBox({ type: 'info', title: 'LaTeX compiler not found', message: 'AKTeX could not find pdflatex.', detail: 'Install MiKTeX or TeX Live, then restart AKTeX. You can still edit projects offline.', buttons: ['Get MiKTeX', 'Continue'], defaultId: 1, cancelId: 1 });
     if (response.response === 0) void shell.openExternal('https://miktex.org');
   }

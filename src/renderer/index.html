@@ -5,8 +5,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob: file:;" />
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob: file:;" />
   <title>AKTeX</title>
+  <link rel="stylesheet" href="katex.min.css" />
   <style>
     :root {
       color-scheme: dark;
@@ -14,19 +15,27 @@
       --bg-panel: #1c1c1c;
       --bg-surface: #242424;
       --bg-active: #2e2e2e;
+      --bg-deep: #101010;
       --border: #2f2f2f;
+      --border-strong: #3b3b3b;
       --border-subtle: #242424;
       --text-primary: #ede8dc;
-      --text-muted: #7a7a7a;
-      --text-dim: #4a4a4a;
+      --text-muted: #8d8a83;
+      --text-dim: #5a5751;
       --accent: #c8742a;
       --accent-bright: #e08535;
+      --accent-soft: rgba(200, 116, 42, .14);
       --log-error: #e05555;
       --log-warn: #d4a017;
       --log-ok: #5cad6e;
-      --font-display: Georgia, serif;
-      --font-ui: Inter, system-ui, sans-serif;
-      --font-mono: 'JetBrains Mono', Consolas, monospace;
+      --font-display: Georgia, 'Times New Roman', serif;
+      --font-ui: Inter, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+      --sidebar-width: 224px;
+      --pdf-width: 620px;
+      --project-height: 320px;
+      --log-height: 148px;
+      --radius: 6px;
     }
 
     * {
@@ -47,26 +56,40 @@
 
     button {
       font: inherit;
+      color: inherit;
     }
 
-    svg {
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 1px solid var(--accent-bright);
+      outline-offset: 1px;
+    }
+
+    .ak-icon {
       width: 16px;
       height: 16px;
+      flex: none;
+      pointer-events: none;
     }
 
     #app {
       height: 100%;
       display: flex;
       flex-direction: column;
+      min-height: 0;
     }
 
+    /* ── Title bar ───────────────────────────────────────────────────────── */
     #titlebar {
-      height: 34px;
+      height: 36px;
       flex: none;
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 0 16px;
+      gap: 14px;
+      padding: 0 14px;
       background: var(--bg-base);
       border-bottom: 1px solid var(--border);
       -webkit-app-region: drag;
@@ -74,7 +97,7 @@
 
     .traffic-lights {
       display: flex;
-      gap: 6px;
+      gap: 7px;
       -webkit-app-region: no-drag;
     }
 
@@ -83,47 +106,57 @@
       width: 12px;
       border-radius: 50%;
       cursor: pointer;
+      border: 1px solid rgba(0, 0, 0, .25);
+      transition: filter .12s;
     }
 
-    .close {
-      background: #e05555
+    .traffic:hover {
+      filter: brightness(1.25);
     }
 
-    .min {
-      background: #d4a017
-    }
-
-    .max {
-      background: #5cad6e
-    }
+    .close { background: #e05555; }
+    .min { background: #d4a017; }
+    .max { background: #5cad6e; }
 
     #wordmark {
       color: var(--text-primary);
-      font: 700 15px var(--font-display);
+      font: 700 16px var(--font-display);
       letter-spacing: -.02em;
       -webkit-app-region: no-drag;
+      white-space: nowrap;
     }
 
-    #wordmark .x {
-      color: var(--accent)
-    }
+    #wordmark .x { color: var(--accent); }
 
     #active-path {
       margin-left: auto;
       color: var(--text-muted);
       font-size: 11px;
       -webkit-app-region: no-drag;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 52vw;
     }
 
+    .titlebar-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Main toolbar ────────────────────────────────────────────────────── */
     #toolbar {
-      height: 42px;
+      height: 44px;
       flex: none;
       display: flex;
       align-items: center;
       gap: 4px;
-      padding: 0 12px;
+      padding: 0 10px;
       background: var(--bg-panel);
       border-bottom: 1px solid var(--border);
+      overflow: hidden;
     }
 
     .tb-group {
@@ -136,7 +169,8 @@
       width: 1px;
       height: 22px;
       background: var(--border);
-      margin: 0 8px
+      margin: 0 7px;
+      flex: none;
     }
 
     .tb-btn {
@@ -147,34 +181,40 @@
       border-radius: 5px;
       background: transparent;
       color: var(--text-muted);
-      padding: 5px 10px;
+      padding: 6px 10px;
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
-      white-space: nowrap
+      white-space: nowrap;
     }
 
     .tb-btn:hover,
     .icon-btn:hover {
       background: var(--bg-surface);
-      color: var(--text-primary)
+      color: var(--text-primary);
     }
 
     .tb-btn.compile {
       background: var(--accent);
       color: #fff;
-      padding: 5px 14px;
-      font-weight: 600
+      padding: 6px 13px;
+      font-weight: 600;
     }
 
     .tb-btn.compile:hover {
       background: var(--accent-bright);
-      color: #fff
+      color: #fff;
     }
 
-    .tb-btn:disabled {
-      opacity: .45;
-      cursor: not-allowed
+    .tb-btn:disabled,
+    .icon-btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+
+    .tb-btn:disabled:hover,
+    .icon-btn:disabled:hover {
+      background: transparent;
     }
 
     #compiler-status {
@@ -183,7 +223,15 @@
       align-items: center;
       gap: 6px;
       color: var(--text-muted);
-      font-size: 11px
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    #compiler-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .status-dot {
@@ -191,75 +239,123 @@
       width: 7px;
       border-radius: 50%;
       background: var(--log-warn);
-      box-shadow: 0 0 6px var(--log-warn)
+      box-shadow: 0 0 6px var(--log-warn);
+      flex: none;
     }
 
     .status-dot.ready {
       background: var(--log-ok);
-      box-shadow: 0 0 6px var(--log-ok)
+      box-shadow: 0 0 6px var(--log-ok);
     }
 
     .status-dot.error {
       background: var(--log-error);
-      box-shadow: 0 0 6px var(--log-error)
+      box-shadow: 0 0 6px var(--log-error);
     }
 
+    /* ── Workspace / panes ───────────────────────────────────────────────── */
     #workspace {
       min-height: 0;
       flex: 1;
       display: flex;
-      overflow: hidden
+      overflow: hidden;
     }
 
     #filetree {
-      width: 210px;
-      min-width: 160px;
+      width: var(--sidebar-width);
+      min-width: 170px;
+      max-width: 480px;
+      flex: none;
       display: flex;
       flex-direction: column;
       background: var(--bg-panel);
       border-right: 1px solid var(--border);
-      flex: none
+      overflow: hidden;
+    }
+
+    .sidebar-section {
+      display: flex;
+      flex-direction: column;
+      min-height: 74px;
+      overflow: hidden;
+    }
+
+    #project-section {
+      height: var(--project-height);
+      flex: none;
+    }
+
+    #outline-section {
+      flex: 1;
+      min-height: 90px;
     }
 
     .panel-header {
-      height: 34px;
+      height: 32px;
       flex: none;
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 0 12px;
+      padding: 0 10px;
       color: var(--text-dim);
       border-bottom: 1px solid var(--border-subtle);
       font-size: 10px;
       font-weight: 600;
       letter-spacing: .09em;
-      text-transform: uppercase
+      text-transform: uppercase;
+      user-select: none;
     }
 
-    .panel-header button {
+    .panel-header .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .panel-header .panel-count {
       margin-left: auto;
-      background: transparent;
-      border: 0;
-      color: var(--text-muted);
-      cursor: pointer;
-      font-size: 17px;
-      line-height: 1
+      font-size: 9px;
+      letter-spacing: 0;
+      color: var(--text-dim);
+      text-transform: none;
     }
 
-    .tree-scroll {
+    .panel-header .icon-btn {
+      width: 22px;
+      height: 22px;
+      margin-left: auto;
+    }
+
+    .panel-header .icon-btn + .panel-count {
+      margin-left: 0;
+    }
+
+    .panel-header .icon-btn .ak-icon {
+      width: 13px;
+      height: 13px;
+    }
+
+    .tree-scroll,
+    .outline-scroll {
       overflow: auto;
       flex: 1;
-      padding: 6px 0
+      padding: 5px 0;
+      min-height: 0;
     }
 
-    .tree-empty {
-      padding: 16px;
+    .tree-empty,
+    .outline-empty {
+      padding: 14px 12px;
       color: var(--text-muted);
-      font-size: 12px
+      font-size: 11px;
+      line-height: 1.55;
     }
 
     .tree-item {
-      height: 27px;
+      min-height: 26px;
       display: flex;
       align-items: center;
       gap: 7px;
@@ -267,47 +363,152 @@
       color: var(--text-muted);
       font-size: 12px;
       cursor: pointer;
-      white-space: nowrap
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .tree-item:hover {
       background: var(--bg-surface);
-      color: var(--text-primary)
+      color: var(--text-primary);
     }
 
     .tree-item.active {
-      padding-left: calc(var(--indent) - 2px) !important;
       background: var(--bg-active);
       border-left: 2px solid var(--accent);
-      color: var(--text-primary)
+      color: var(--text-primary);
+      padding-left: calc(var(--indent, 16px) - 2px) !important;
     }
 
     .tree-item.directory {
       color: var(--text-dim);
       font-size: 11px;
       font-weight: 600;
-      letter-spacing: .05em;
-      text-transform: uppercase;
-      cursor: default
+      letter-spacing: .04em;
+      cursor: default;
     }
 
     .tree-item.directory:hover {
-      background: transparent
+      background: transparent;
+      color: var(--text-muted);
     }
 
-    .tree-icon {
-      width: 14px;
-      text-align: center;
-      opacity: .7
+    .tree-item .ak-icon {
+      width: 13px;
+      height: 13px;
+      opacity: .76;
     }
 
+    .tree-item .tree-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .outline-item {
+      width: 100%;
+      min-height: 25px;
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      border: 0;
+      border-left: 2px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 4px 9px;
+      text-align: left;
+      font-size: 11.5px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .outline-item:hover {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+    }
+
+    .outline-item .outline-line {
+      margin-left: auto;
+      color: var(--text-dim);
+      font: 9px var(--font-mono);
+      opacity: .8;
+    }
+
+    .outline-item.level-0,
+    .outline-item.level-1 { color: var(--text-primary); font-weight: 600; }
+    .outline-item.level-2 { color: var(--text-primary); }
+    .outline-item.level-3 { color: var(--text-muted); }
+    .outline-item.level-4,
+    .outline-item.level-5,
+    .outline-item.level-6 { color: var(--text-dim); font-size: 11px; }
+
+    #outline-section.collapsed {
+      flex: 0 0 32px;
+      min-height: 32px;
+    }
+
+    #outline-section.collapsed .outline-scroll {
+      display: none;
+    }
+
+    /* ── Splitters ───────────────────────────────────────────────────────── */
+    .splitter {
+      position: relative;
+      flex: none;
+      background: transparent;
+      z-index: 8;
+      touch-action: none;
+    }
+
+    .splitter.vertical {
+      width: 6px;
+      cursor: col-resize;
+    }
+
+    .splitter.horizontal {
+      height: 6px;
+      cursor: row-resize;
+    }
+
+    .splitter::after {
+      content: '';
+      position: absolute;
+      background: var(--border);
+      transition: background .12s;
+    }
+
+    .splitter.vertical::after {
+      top: 0;
+      bottom: 0;
+      left: 2px;
+      width: 1px;
+    }
+
+    .splitter.horizontal::after {
+      left: 0;
+      right: 0;
+      top: 2px;
+      height: 1px;
+    }
+
+    .splitter:hover::after,
+    .splitter.dragging::after {
+      background: var(--accent);
+    }
+
+    .splitter.hidden {
+      display: none;
+    }
+
+    /* ── Editor pane ─────────────────────────────────────────────────────── */
     #editor-pane {
-      min-width: 0;
+      min-width: 260px;
       flex: 1;
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      background: var(--bg-panel)
+      background: var(--bg-panel);
     }
 
     .tab-bar {
@@ -319,7 +520,7 @@
       padding-left: 8px;
       overflow: auto;
       background: var(--bg-base);
-      border-bottom: 1px solid var(--border)
+      border-bottom: 1px solid var(--border);
     }
 
     .tab {
@@ -330,68 +531,141 @@
       border: 1px solid transparent;
       border-bottom: 0;
       border-radius: 5px 5px 0 0;
-      padding: 0 12px;
+      padding: 0 11px;
       color: var(--text-muted);
       font-size: 12px;
       cursor: pointer;
-      white-space: nowrap
+      white-space: nowrap;
+      background: transparent;
     }
 
-    .tab:hover {
-      color: var(--text-primary)
-    }
+    .tab:hover { color: var(--text-primary); }
 
     .tab.active {
       background: var(--bg-panel);
       border-color: var(--border);
-      color: var(--text-primary)
+      color: var(--text-primary);
     }
 
     .tab .close-tab {
       opacity: .45;
-      font-size: 15px
+      font-size: 15px;
+      line-height: 1;
     }
 
     .tab .close-tab:hover {
       color: var(--log-error);
-      opacity: 1
+      opacity: 1;
+    }
+
+    /* ── Code toolbar ────────────────────────────────────────────────────── */
+    .code-toolbar {
+      height: 39px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 0 7px;
+      background: #191919;
+      border-bottom: 1px solid var(--border-subtle);
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    .code-toolbar::-webkit-scrollbar { height: 0; }
+
+    .code-tool {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      flex: none;
+    }
+
+    .code-tool:hover:not(:disabled) {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+    }
+
+    .code-tool.active {
+      background: var(--accent-soft);
+      border-color: rgba(200, 116, 42, .45);
+      color: var(--accent-bright);
+    }
+
+    .code-tool:disabled {
+      opacity: .26;
+      cursor: not-allowed;
+    }
+
+    .code-sep {
+      width: 1px;
+      height: 19px;
+      background: var(--border);
+      margin: 0 4px;
+      flex: none;
+    }
+
+    .code-spacer { flex: 1; }
+
+    .code-tool.sync {
+      width: auto;
+      gap: 5px;
+      padding: 0 8px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .02em;
     }
 
     #editor {
       min-height: 0;
       flex: 1;
-      overflow: hidden
+      overflow: hidden;
+      user-select: text;
     }
 
     .cm-editor {
       height: 100%;
-      font-size: 12.5px
+      font-size: 12.5px;
     }
 
     .cm-scroller {
-      overflow: auto !important
+      overflow: auto !important;
+      line-height: 1.55;
     }
 
+    .cm-editor.cm-focused {
+      outline: none !important;
+    }
+
+    /* ── PDF pane ────────────────────────────────────────────────────────── */
     #pdf-pane {
-      width: 45%;
+      width: var(--pdf-width);
       min-width: 280px;
+      max-width: calc(100vw - 300px);
       flex: none;
       display: flex;
       flex-direction: column;
       overflow: hidden;
       background: var(--bg-base);
-      border-left: 1px solid var(--border)
+      border-left: 1px solid var(--border);
     }
 
     .pdf-toolbar {
-      height: 34px;
+      height: 36px;
       flex: none;
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 0 10px;
+      gap: 3px;
+      padding: 0 8px;
       background: var(--bg-panel);
-      border-bottom: 1px solid var(--border)
+      border-bottom: 1px solid var(--border);
     }
 
     .icon-btn {
@@ -403,74 +677,167 @@
       border-radius: 4px;
       background: transparent;
       color: var(--text-muted);
-      cursor: pointer
+      cursor: pointer;
+      flex: none;
     }
 
-    .pdf-page-info,
+    .icon-btn .ak-icon {
+      width: 15px;
+      height: 15px;
+    }
+
     .zoom {
-      font-size: 11px;
-      color: var(--text-muted)
+      font: 10px var(--font-mono);
+      color: var(--text-muted);
+      min-width: 40px;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 3px;
+      padding: 3px 2px;
     }
 
-    .zoom {
-      margin-left: auto
+    .zoom:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+    .pdf-page-info {
+      font: 10px var(--font-mono);
+      color: var(--text-muted);
+      margin-left: 4px;
+      white-space: nowrap;
     }
 
-    /* Continuous scroll PDF viewer */
+    .pdf-sync-hint {
+      margin-left: auto;
+      color: var(--text-dim);
+      font-size: 9.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 46%;
+      padding-right: 4px;
+    }
+
+    .pdf-sync-hint.armed { color: var(--accent-bright); }
+
+    #btn-pdf-to-code {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    #btn-pdf-to-code:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent-bright);
+      background: var(--accent-soft);
+    }
+
+    #btn-pdf-to-code:disabled {
+      opacity: .35;
+      cursor: not-allowed;
+    }
+
     .pdf-scroll {
       min-height: 0;
       flex: 1;
-      overflow-y: auto;
-      overflow-x: auto;
+      overflow: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px 20px;
-      gap: 12px;
-      background: #333;
-      touch-action: pan-y pinch-zoom
+      padding: 18px 18px 28px;
+      gap: 0;
+      background: #2b2b2b;
+      background-image: radial-gradient(circle at 50% 0, #363636 0, #282828 62%);
+      touch-action: pan-y;
+      overscroll-behavior: contain;
+      position: relative;
     }
 
     .pdf-empty {
       color: #999;
       text-align: center;
       line-height: 1.7;
-      margin: auto
+      margin: auto;
+      font-size: 12px;
     }
 
     .pdf-empty strong {
       display: block;
       color: #ddd;
-      font-weight: 500
+      font-weight: 500;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .pdf-empty .ak-icon {
+      width: 34px;
+      height: 34px;
+      margin: 0 auto 10px;
+      opacity: .5;
     }
 
     .pdf-page-wrapper {
       flex: none;
-      position: relative
+      position: relative;
+      background: #fff;
+      box-shadow: 0 6px 28px rgba(0, 0, 0, .55);
+      overflow: hidden;
+      margin: 0 auto;
     }
 
     .pdf-page-canvas {
       display: block;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, .5);
-      background: #fff;
       cursor: crosshair;
       position: relative;
-      z-index: 1
+      z-index: 1;
+      background: #fff;
     }
 
-    /* ── Text selection layer ──────────────────────────────────── */
+    .pdf-page-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #b9b9b9;
+      font: 11px var(--font-mono);
+      background: linear-gradient(100deg, #f7f7f7 30%, #ffffff 50%, #f7f7f7 70%);
+      background-size: 220% 100%;
+      animation: pageShimmer 1.8s linear infinite;
+    }
+
+    .pdf-page-wrapper.rendered .pdf-page-placeholder { display: none; }
+
+    .pdf-page-error {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #b33;
+      font-size: 11px;
+      text-align: center;
+      padding: 18px;
+      background: #fff;
+    }
+
     .textLayer {
       position: absolute;
       left: 0;
       top: 0;
-      right: 0;
-      bottom: 0;
       overflow: hidden;
       line-height: 1;
       text-size-adjust: none;
       forced-color-adjust: none;
       transform-origin: 0 0;
-      z-index: 2
+      z-index: 2;
     }
 
     .textLayer span,
@@ -479,32 +846,68 @@
       position: absolute;
       white-space: pre;
       cursor: text;
-      transform-origin: 0% 0%
+      transform-origin: 0% 0%;
     }
 
     .textLayer ::selection {
-      background: rgba(0, 100, 255, 0.25);
-      color: transparent
+      background: rgba(70, 140, 255, .28);
+      color: transparent;
     }
 
+    .pdf-synctex-highlight {
+      position: absolute;
+      z-index: 3;
+      pointer-events: none;
+      background: rgba(255, 196, 60, .34);
+      border: 1px solid rgba(255, 196, 60, .95);
+      border-radius: 2px;
+      box-shadow: 0 0 0 2px rgba(255, 196, 60, .14);
+      animation: syncGlow 1.4s ease-out;
+    }
+
+    .pdf-sync-marker {
+      position: absolute;
+      z-index: 4;
+      width: 16px;
+      height: 16px;
+      margin: -8px 0 0 -8px;
+      border-radius: 50%;
+      border: 2px solid var(--accent-bright);
+      background: rgba(200, 116, 42, .28);
+      box-shadow: 0 0 0 4px rgba(200, 116, 42, .15), 0 0 12px rgba(200, 116, 42, .5);
+      pointer-events: none;
+      animation: markerPulse 1.4s ease-out infinite;
+    }
+
+    /* ── Log panel ───────────────────────────────────────────────────────── */
     #log-panel {
-      height: 130px;
+      height: var(--log-height);
+      min-height: 34px;
       flex: none;
       display: flex;
       flex-direction: column;
       overflow: hidden;
       background: var(--bg-base);
-      border-top: 1px solid var(--border)
+      border-top: 1px solid var(--border);
+      transition: height .12s ease;
     }
 
+    #log-panel.collapsed {
+      height: 34px !important;
+      min-height: 34px;
+    }
+
+    #log-panel.collapsed .log-scroll { display: none; }
+
     .log-tabs {
-      height: 28px;
+      height: 33px;
       flex: none;
       display: flex;
       align-items: center;
       gap: 2px;
       padding: 0 8px;
-      border-bottom: 1px solid var(--border-subtle)
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-panel);
     }
 
     .log-tab {
@@ -512,79 +915,74 @@
       border-radius: 4px;
       background: transparent;
       color: var(--text-dim);
-      padding: 3px 10px;
+      padding: 4px 10px;
       cursor: pointer;
-      font-size: 11px
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
 
     .log-tab:hover {
       background: var(--bg-surface);
-      color: var(--text-muted)
+      color: var(--text-muted);
     }
 
     .log-tab.active {
       background: var(--bg-surface);
-      color: var(--text-primary)
+      color: var(--text-primary);
+    }
+
+    #problem-count { color: var(--log-error); font-size: 10px; }
+
+    .log-spacer { flex: 1; }
+
+    .log-toggle {
+      width: 24px;
+      height: 24px;
     }
 
     .log-scroll {
       flex: 1;
       overflow: auto;
-      padding: 6px 14px;
-      font: 11px/18px var(--font-mono)
+      padding: 7px 13px;
+      font: 11px/18px var(--font-mono);
+      user-select: text;
+      min-height: 0;
     }
 
     .log-line {
       display: flex;
       gap: 10px;
       white-space: pre-wrap;
-      user-select: text
+      user-select: text;
+      word-break: break-word;
     }
+
+    .log-line[hidden] { display: none; }
 
     .timestamp {
       color: var(--text-dim);
       flex: none;
-      user-select: text
+      user-select: text;
     }
 
-    .log-info {
-      color: var(--text-muted);
-      user-select: text
-    }
+    .log-info { color: var(--text-muted); }
+    .log-warning { color: var(--log-warn); }
+    .log-error { color: var(--log-error); }
+    .log-success { color: var(--log-ok); }
 
-    .log-warning {
-      color: var(--log-warn);
-      user-select: text
-    }
-
-    .log-error {
-      color: var(--log-error);
-      user-select: text
-    }
-
-    .log-success {
-      color: var(--log-ok);
-      user-select: text
-    }
-
-    .log-scroll {
-      user-select: text
-    }
-
-    .cm-editor {
-      user-select: text
-    }
-
+    /* ── Context menu ────────────────────────────────────────────────────── */
     #context-menu {
       position: fixed;
       display: none;
-      z-index: 10;
-      width: 144px;
+      z-index: 300;
+      width: 150px;
       padding: 4px;
       background: #1e1e1e;
       border: 1px solid var(--border);
       border-radius: 6px;
-      box-shadow: 0 8px 24px #0009
+      box-shadow: 0 12px 32px #000b;
     }
 
     .context-action {
@@ -596,87 +994,858 @@
       padding: 6px 8px;
       text-align: left;
       font-size: 12px;
-      cursor: pointer
+      cursor: pointer;
     }
 
-    .context-action:hover {
-      background: var(--bg-active)
+    .context-action:hover { background: var(--bg-active); }
+    .context-action.danger { color: var(--log-error); }
+
+    /* ── Splash ──────────────────────────────────────────────────────────── */
+    #splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9000;
+      display: grid;
+      place-items: center;
+      background: #121212;
+      overflow: hidden;
+      opacity: 1;
+      visibility: visible;
+      transition: opacity .65s ease, visibility .65s ease;
     }
 
-    .context-action.danger {
-      color: var(--log-error)
+    #splash::before {
+      content: '';
+      position: absolute;
+      width: min(760px, 82vw);
+      height: min(760px, 82vw);
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(200, 116, 42, .16) 0%, rgba(200, 116, 42, .05) 38%, transparent 68%);
+      filter: blur(12px);
+      pointer-events: none;
+    }
+
+    #splash.done {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .splash-inner {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      transform: translateY(8px);
+      opacity: 0;
+      animation: splashIn 1s cubic-bezier(.22, .8, .3, 1) .08s forwards;
+    }
+
+    .splash-logo {
+      width: min(590px, 74vw);
+      max-height: 220px;
+      object-fit: contain;
+      filter: drop-shadow(0 18px 40px rgba(0, 0, 0, .55));
+    }
+
+    .splash-tagline {
+      color: var(--text-muted);
+      font-size: 12px;
+      letter-spacing: .26em;
+      text-transform: uppercase;
+      opacity: 0;
+      animation: fadeUp .7s ease .65s forwards;
+    }
+
+    .splash-bar {
+      width: 150px;
+      height: 2px;
+      border-radius: 2px;
+      overflow: hidden;
+      background: #272727;
+      opacity: 0;
+      animation: fadeUp .5s ease .8s forwards;
+    }
+
+    .splash-bar::after {
+      content: '';
+      display: block;
+      height: 100%;
+      width: 45%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent-bright), transparent);
+      animation: splashLoad 1.4s ease-in-out .8s infinite;
+    }
+
+    /* ── Overlays / dialogs ──────────────────────────────────────────────── */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      background: rgba(4, 4, 4, .66);
+      backdrop-filter: blur(4px);
+      animation: overlayIn .16s ease-out;
+    }
+
+    .dialog {
+      width: min(720px, 94vw);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      background: #151515;
+      border: 1px solid #343434;
+      border-radius: 10px;
+      box-shadow: 0 28px 90px rgba(0, 0, 0, .72);
+      overflow: hidden;
+      animation: dialogIn .18s cubic-bezier(.2, .8, .3, 1);
+    }
+
+    .dialog.wide { width: min(980px, 95vw); }
+
+    .dialog-head {
+      height: 54px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--border);
+      background: #171717;
+    }
+
+    .dialog-head h2 {
+      font: 600 15px var(--font-ui);
+      color: var(--text-primary);
+      letter-spacing: .01em;
+    }
+
+    .dialog-head .dialog-sub {
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-left: 2px;
+    }
+
+    .dialog-close {
+      margin-left: auto;
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .dialog-close:hover { background: var(--bg-surface); color: var(--text-primary); }
+
+    .dialog-body {
+      padding: 16px 18px;
+      overflow: auto;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .dialog-foot {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 18px;
+      border-top: 1px solid var(--border);
+      background: #171717;
+      flex-wrap: wrap;
+    }
+
+    .dialog-foot .foot-spacer { flex: 1; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 13px;
+      border: 1px solid var(--border-strong);
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn:hover { background: var(--bg-surface); border-color: #4a4a4a; }
+
+    .btn.primary {
+      background: #c8a965;
+      border-color: #c8a965;
+      color: #17130c;
+      font-weight: 600;
+    }
+
+    .btn.primary:hover { background: #dcbc77; border-color: #dcbc77; }
+
+    .btn.secondary {
+      border-color: rgba(200, 169, 101, .55);
+      color: #c8a965;
+    }
+
+    .btn.secondary:hover { background: rgba(200, 169, 101, .1); }
+
+    .btn.tertiary {
+      border-color: transparent;
+      color: #c8a965;
+      padding: 0 8px;
+    }
+
+    .btn.tertiary:hover { background: rgba(200, 169, 101, .08); }
+
+    .btn.danger { color: var(--log-error); border-color: rgba(224, 85, 85, .4); }
+
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      border-bottom: 1px solid var(--border);
+      margin: -4px 0 14px;
+    }
+
+    .tabs .tab-btn {
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 9px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tabs .tab-btn:hover { color: var(--text-primary); }
+    .tabs .tab-btn.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+
+    /* Formula editor */
+    .formula-cats {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      min-height: 66px;
+    }
+
+    .formula-cat {
+      flex: none;
+      min-width: 68px;
+      height: 58px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #1a1a1a;
+      color: var(--text-muted);
+      font-size: 9px;
+      cursor: pointer;
+      padding: 4px 6px;
+    }
+
+    .formula-cat:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .formula-cat.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-bright); }
+
+    .formula-cat .cat-preview {
+      font-size: 17px;
+      line-height: 1.1;
+      color: #e8e6e3;
+      min-height: 22px;
+      display: grid;
+      place-items: center;
+    }
+
+    .formula-cat .cat-preview .katex { font-size: 1em; }
+
+    .formula-palette {
+      display: none;
+      margin-bottom: 10px;
+      padding: 9px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #101010;
+      max-height: 132px;
+      overflow: auto;
+    }
+
+    .formula-palette.open { display: block; }
+
+    .palette-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .snippet-btn {
+      min-width: 34px;
+      height: 32px;
+      padding: 0 8px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      background: #1b1b1b;
+      color: #e8e6e3;
+      font: 11px var(--font-mono);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .snippet-btn:hover { border-color: var(--accent); color: var(--accent-bright); background: #232323; }
+    .snippet-btn .katex { font-size: 1.05em; }
+
+    .formula-input {
+      width: 100%;
+      min-height: 150px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0e0e0e;
+      color: #e8e6e3;
+      padding: 11px 13px;
+      font: 12.5px/1.6 var(--font-mono);
+      outline: none;
+    }
+
+    .formula-input:focus { border-color: rgba(200, 116, 42, .65); }
+
+    .formula-preview-box {
+      margin-top: 11px;
+      min-height: 150px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0b0b0b;
+      padding: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      color: #f2eee5;
+    }
+
+    .formula-preview-box .katex-display { margin: 0; }
+
+    .formula-error {
+      margin-top: 8px;
+      color: var(--log-error);
+      font: 11px var(--font-mono);
+      white-space: pre-wrap;
+      min-height: 14px;
+    }
+
+    .formula-options {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .formula-options label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+    }
+
+    .formula-options input[type="radio"],
+    .formula-options input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    .formula-options select,
+    .field select,
+    .field input[type="text"],
+    .field input[type="number"] {
+      height: 28px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #1b1b1b;
+      color: var(--text-primary);
+      padding: 0 7px;
+      font-size: 11px;
+      outline: none;
+    }
+
+    .formula-options select:focus,
+    .field select:focus,
+    .field input:focus { border-color: var(--accent); }
+
+    .formula-options select:disabled { opacity: .4; }
+
+    /* Generic fields */
+    .field-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 11px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      flex: 1;
+      min-width: 150px;
+    }
+
+    .field > label {
+      color: var(--text-dim);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .field input[type="text"],
+    .field input[type="number"] { height: 32px; width: 100%; font-size: 12px; padding: 0 9px; }
+    .field select { height: 32px; width: 100%; font-size: 12px; }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      color: var(--text-muted);
+      font-size: 11px;
+      margin: 4px 0 12px;
+    }
+
+    .check-row label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+    .check-row input { accent-color: var(--accent); }
+
+    .hint {
+      color: var(--text-dim);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .warning-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--log-warn);
+      font-size: 11px;
+      margin-top: 6px;
+    }
+
+    /* Image dialog */
+    .image-drop {
+      min-height: 210px;
+      border: 1px dashed #414141;
+      border-radius: 8px;
+      background: #101010;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-align: center;
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .image-drop:hover { border-color: var(--accent); color: var(--text-primary); }
+    .image-drop .ak-icon { width: 30px; height: 30px; opacity: .6; }
+    .image-drop img { max-width: 100%; max-height: 260px; object-fit: contain; display: block; }
+    .image-drop.has-image { border-style: solid; background: #0c0c0c; }
+
+    .image-meta {
+      margin-top: 8px;
+      color: var(--text-dim);
+      font: 10px var(--font-mono);
+      word-break: break-all;
+    }
+
+    code {
+      color: var(--text-primary);
+      background: #242424;
+      border-radius: 3px;
+      padding: 1px 4px;
+      font: 10.5px var(--font-mono);
+    }
+
+    .outline-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Formula viewer popover */
+    .formula-popover {
+      position: fixed;
+      z-index: 650;
+      width: min(440px, 90vw);
+      background: #161616;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, .65);
+      overflow: hidden;
+      animation: dialogIn .14s ease-out;
+    }
+
+    .formula-popover-head {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 36px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .formula-popover-head .dialog-close { width: 24px; height: 24px; margin-left: auto; }
+    .formula-popover-body { padding: 14px; display: flex; align-items: center; justify-content: center; min-height: 90px; overflow: auto; color: #f2eee5; }
+    .formula-popover-code { border-top: 1px solid var(--border); padding: 8px 12px; color: var(--text-dim); font: 10px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow: auto; }
+    .formula-popover-foot { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
+
+    /* Toast */
+    #toast-root {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 800;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: #1d1d1d;
+      border: 1px solid #3a3a3a;
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 9px 13px;
+      color: var(--text-primary);
+      font-size: 11.5px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+      animation: toastIn .18s ease-out;
+      max-width: 360px;
+    }
+
+    .toast.error { border-left-color: var(--log-error); }
+
+    /* ── Animations ──────────────────────────────────────────────────────── */
+    @keyframes splashIn {
+      from { opacity: 0; transform: translateY(12px) scale(.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes splashLoad {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(330%); }
+    }
+
+    @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+    @keyframes dialogIn {
+      from { opacity: 0; transform: translateY(7px) scale(.99); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pageShimmer {
+      0% { background-position: 130% 0; }
+      100% { background-position: -80% 0; }
+    }
+
+    @keyframes syncGlow {
+      0% { box-shadow: 0 0 0 0 rgba(255, 196, 60, .55); }
+      100% { box-shadow: 0 0 0 9px rgba(255, 196, 60, 0); }
+    }
+
+    @keyframes markerPulse {
+      0% { box-shadow: 0 0 0 3px rgba(200, 116, 42, .25), 0 0 10px rgba(200, 116, 42, .4); }
+      70% { box-shadow: 0 0 0 10px rgba(200, 116, 42, 0), 0 0 16px rgba(200, 116, 42, .55); }
+      100% { box-shadow: 0 0 0 3px rgba(200, 116, 42, .25), 0 0 10px rgba(200, 116, 42, .4); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
     }
 
     ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px
+      width: 7px;
+      height: 7px;
     }
 
+    ::-webkit-scrollbar-track { background: transparent; }
+
     ::-webkit-scrollbar-thumb {
-      background: var(--border);
-      border-radius: 4px
+      background: #3a3a3a;
+      border-radius: 5px;
     }
+
+    ::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
   </style>
 </head>
 
 <body>
+  <div id="splash" role="status" aria-label="Starting AKTeX">
+    <div class="splash-inner">
+      <img class="splash-logo" src="launching-logo.png" alt="AKTeX" />
+      <div class="splash-tagline">Offline LaTeX Studio</div>
+      <div class="splash-bar"></div>
+    </div>
+  </div>
+
   <div id="app">
     <header id="titlebar">
-      <div class="traffic-lights"><i class="traffic close"></i><i class="traffic min"></i><i class="traffic max"></i>
+      <div class="traffic-lights">
+        <i class="traffic close" title="Close" role="button" aria-label="Close window"></i>
+        <i class="traffic min" title="Minimize" role="button" aria-label="Minimize window"></i>
+        <i class="traffic max" title="Maximize" role="button" aria-label="Maximize window"></i>
       </div>
-      <div id="wordmark">Ak<i>Te</i><span class="x">X</span></div><span id="active-path">Untitled — AKTeX</span>
+      <div id="wordmark">Ak<i>Te</i><span class="x">X</span></div>
+      <span id="active-path">Untitled — AKTeX</span>
+      <div class="titlebar-actions">
+        <button class="icon-btn" id="btn-toggle-log-title" title="Show / hide log panel" aria-label="Show or hide log panel">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-terminal"></use></svg>
+        </button>
+      </div>
     </header>
+
     <nav id="toolbar">
-      <div class="tb-group"><button class="tb-btn" id="btn-new" title="New file">＋ New</button><button class="tb-btn"
-          id="btn-open-project" title="Open project">▱ Open</button><button class="tb-btn" id="btn-save"
-          title="Save (Ctrl+S)">▣ Save</button></div><i class="tb-sep"></i>
-      <div class="tb-group"><button class="tb-btn compile" id="btn-compile" title="Compile (Ctrl+Enter)">▶
-          Compile</button><button class="tb-btn" id="btn-stop" title="Stop compilation" disabled>■</button></div><i
-        class="tb-sep"></i>
-      <div class="tb-group"><button class="tb-btn" id="btn-find" title="Find (Ctrl+F)">⌕ Find</button><button
-          class="tb-btn" id="btn-export-zip" title="Export ZIP">⇩ Export</button><button class="tb-btn"
-          id="btn-import-zip" title="Import ZIP">⇧ Import</button><button class="tb-btn" id="btn-compiler-help"
-          title="Install MiKTeX">⚙</button></div>
-      <div id="compiler-status"><i class="status-dot" id="status-dot"></i><span id="compiler-label">Checking
-          compiler…</span></div>
+      <div class="tb-group">
+        <button class="tb-btn" id="btn-new" title="New file">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-new-file"></use></svg><span>New</span>
+        </button>
+        <button class="tb-btn" id="btn-open-project" title="Open project">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-folder-open"></use></svg><span>Open</span>
+        </button>
+        <button class="tb-btn" id="btn-save" title="Save (Ctrl+S)">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-save"></use></svg><span>Save</span>
+        </button>
+      </div>
+      <i class="tb-sep"></i>
+      <div class="tb-group">
+        <button class="tb-btn compile" id="btn-compile" title="Compile (Ctrl+Enter)">
+          <svg class="ak-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-compile"></use></svg><span>Compile</span>
+        </button>
+        <button class="tb-btn" id="btn-stop" title="Stop compilation" disabled aria-label="Stop compilation">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-stop"></use></svg>
+        </button>
+      </div>
+      <i class="tb-sep"></i>
+      <div class="tb-group">
+        <button class="tb-btn" id="btn-find" title="Find (Ctrl+F)">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-search"></use></svg><span>Find</span>
+        </button>
+        <button class="tb-btn" id="btn-export-zip" title="Export ZIP">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-export"></use></svg><span>Export</span>
+        </button>
+        <button class="tb-btn" id="btn-import-zip" title="Import ZIP">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-import"></use></svg><span>Import</span>
+        </button>
+        <button class="tb-btn" id="btn-compiler-help" title="Install MiKTeX">
+          <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-settings"></use></svg>
+        </button>
+      </div>
+      <div id="compiler-status">
+        <i class="status-dot" id="status-dot"></i>
+        <span id="compiler-label">Checking compiler…</span>
+      </div>
     </nav>
+
     <main id="workspace">
       <aside id="filetree">
-        <div class="panel-header">▱ Project <button id="btn-tree-new" title="New file">＋</button></div>
-        <div class="tree-scroll" id="tree-content">
-          <p class="tree-empty">Open a project to begin.</p>
-        </div>
+        <section class="sidebar-section" id="project-section">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="ak-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-folder"></use></svg>
+              Project
+            </span>
+            <button class="icon-btn" id="btn-tree-new" title="New file" aria-label="New file">
+              <svg class="ak-icon" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-plus"></use></svg>
+            </button>
+          </div>
+          <div class="tree-scroll" id="tree-content">
+            <p class="tree-empty">Open a project to begin.</p>
+          </div>
+        </section>
+
+        <div class="splitter horizontal" id="outline-splitter" role="separator" tabindex="0" aria-label="Resize project and outline panels"></div>
+
+        <section class="sidebar-section" id="outline-section">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="ak-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-outline"></use></svg>
+              Outline
+            </span>
+            <span class="panel-count" id="outline-count"></span>
+            <button class="icon-btn" id="btn-outline-collapse" title="Collapse outline" aria-label="Collapse outline">
+              <svg class="ak-icon" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-chevron-down"></use></svg>
+            </button>
+          </div>
+          <div class="outline-scroll" id="outline-content">
+            <p class="outline-empty">The document outline appears here.</p>
+          </div>
+        </section>
       </aside>
+
+      <div class="splitter vertical" id="sidebar-splitter" role="separator" tabindex="0" aria-label="Resize sidebar"></div>
+
       <section id="editor-pane">
         <div class="tab-bar" id="tab-bar">
           <div class="tab active"><span>◇</span><span>Welcome</span></div>
         </div>
+
+        <div class="code-toolbar" id="code-toolbar" role="toolbar" aria-label="LaTeX tools">
+          <button class="code-tool" id="btn-editor-undo" data-tool="undo" title="Undo (Ctrl+Z)" aria-label="Undo">
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-undo"></use></svg>
+          </button>
+          <button class="code-tool" id="btn-editor-redo" data-tool="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-redo"></use></svg>
+          </button>
+          <i class="code-sep"></i>
+          <button class="code-tool" data-tool="ai" title="AI assistant — coming in a future update" aria-label="AI assistant (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-ai"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="magic" title="Magic tools — coming in a future update" aria-label="Magic tools (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-magic"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="reference" title="Insert reference — coming in a future update" aria-label="Insert reference (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-reference"></use></svg>
+          </button>
+          <button class="code-tool" id="btn-formula-editor" data-tool="formula-editor" title="Formula editor" aria-label="Formula editor">
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-formula"></use></svg>
+          </button>
+          <button class="code-tool" id="btn-formula-viewer" data-tool="formula-viewer" title="Formula viewer — select LaTeX, then click" aria-label="Formula viewer">
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-formula-view"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="table" title="Table generator — coming in a future update" aria-label="Table generator (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-table"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="edit" title="Inline edit — coming in a future update" aria-label="Inline edit (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-edit"></use></svg>
+          </button>
+          <button class="code-tool" id="btn-image" data-tool="image" title="Insert image" aria-label="Insert image">
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-image"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="symbols" title="Symbol picker — coming in a future update" aria-label="Symbol picker (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-omega"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="settings" title="Editor settings — coming in a future update" aria-label="Editor settings (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-settings"></use></svg>
+          </button>
+          <div class="code-spacer"></div>
+          <button class="code-tool" data-tool="back" title="Navigate back — coming in a future update" aria-label="Navigate back (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-arrow-left"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="forward" title="Navigate forward — coming in a future update" aria-label="Navigate forward (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-arrow-right"></use></svg>
+          </button>
+          <button class="code-tool" data-tool="more" title="More tools — coming in a future update" aria-label="More tools (coming soon)" disabled>
+            <svg class="ak-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-more"></use></svg>
+          </button>
+          <button class="code-tool sync" id="btn-code-to-pdf" data-tool="sync" title="Sync selection to PDF — select text, then click" aria-label="Sync selection to PDF">
+            <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-sync-code"></use></svg>
+            <span>To PDF</span>
+          </button>
+        </div>
+
         <div id="editor"></div>
       </section>
+
+      <div class="splitter vertical" id="editor-pdf-splitter" role="separator" tabindex="0" aria-label="Resize code and PDF panes"></div>
+
       <section id="pdf-pane">
         <div class="pdf-toolbar">
-          <button class="icon-btn" id="btn-zoom-out" title="Zoom out">−</button>
-          <span class="zoom" id="zoom-level">100%</span>
-          <button class="icon-btn" id="btn-zoom-in" title="Zoom in">＋</button>
-          <span class="pdf-page-info" id="pdf-page-info" style="margin-left:8px"></span>
+          <button class="icon-btn" id="btn-zoom-out" title="Zoom out (Ctrl+-)" aria-label="Zoom out">
+            <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-zoom-out"></use></svg>
+          </button>
+          <span class="zoom" id="zoom-level" title="Reset to 100%">100%</span>
+          <button class="icon-btn" id="btn-zoom-in" title="Zoom in (Ctrl++)" aria-label="Zoom in">
+            <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-zoom-in"></use></svg>
+          </button>
+          <button class="icon-btn" id="btn-fit-width" title="Fit width" aria-label="Fit width">
+            <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-fit-width"></use></svg>
+          </button>
+          <button class="icon-btn" id="btn-fit-page" title="Fit page" aria-label="Fit page">
+            <svg class="ak-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-fit-page"></use></svg>
+          </button>
+          <span class="pdf-page-info" id="pdf-page-info"></span>
+          <span class="pdf-sync-hint" id="pdf-sync-hint"></span>
+          <button id="btn-pdf-to-code" title="Sync PDF to code — click a PDF position first, then this button" disabled>
+            <svg class="ak-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-sync-pdf"></use></svg>
+            <span>To code</span>
+          </button>
         </div>
         <div class="pdf-scroll" id="pdf-scroll">
-          <div class="pdf-empty"><strong>PDF preview</strong>Compile a LaTeX document to see it here.</div>
+          <div class="pdf-empty">
+            <svg class="ak-icon" width="34" height="34" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-file-pdf"></use></svg>
+            <strong>PDF preview</strong>
+            Compile a LaTeX document to see it here.<br />
+            Pinch, Ctrl + scroll, or use the zoom controls.
+          </div>
         </div>
       </section>
     </main>
+
+    <div class="splitter horizontal" id="log-splitter" role="separator" tabindex="0" aria-label="Resize log panel"></div>
+
     <section id="log-panel">
-      <div class="log-tabs"><button class="log-tab active" data-log="output">Output</button><button class="log-tab"
-          data-log="problems">Problems <span id="problem-count"></span></button></div>
+      <div class="log-tabs">
+        <button class="log-tab active" data-log="output">Output</button>
+        <button class="log-tab" data-log="problems">Problems <span id="problem-count"></span></button>
+        <span class="log-spacer"></span>
+        <button class="icon-btn log-toggle" id="btn-log-collapse" title="Collapse log panel" aria-label="Collapse log panel">
+          <svg class="ak-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><use href="#ak-icon-log-close"></use></svg>
+        </button>
+      </div>
       <div class="log-scroll" id="log-scroll">
-        <div class="log-line"><time class="timestamp">Ready</time><span class="log-info">Open a project to begin.</span>
-        </div>
+        <div class="log-line"><time class="timestamp">Ready</time><span class="log-info">Open a project to begin.</span></div>
       </div>
     </section>
   </div>
-  <div id="context-menu"><button class="context-action" data-action="new">New File</button><button
-      class="context-action" data-action="rename">Rename</button><button class="context-action danger"
-      data-action="delete">Delete</button></div>
+
+  <div id="context-menu">
+    <button class="context-action" data-action="new">New File</button>
+    <button class="context-action" data-action="rename">Rename</button>
+    <button class="context-action danger" data-action="delete">Delete</button>
+  </div>
+
+  <div id="overlay-root"></div>
+  <div id="toast-root"></div>
+
   <script src="index.js"></script>
 </body>
 

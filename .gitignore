@@ -1,6 +1,11 @@
 node_modules/
 dist/
 release/
+.npm-cache/
+.aktex-dev-data/
+.tmp-*/
+.tmp-*
+*.tsbuildinfo
 *.js.map
 *.d.ts
 .DS_Store

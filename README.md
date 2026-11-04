@@ -27,16 +27,20 @@ No internet required. No subscription. Just write and compile.
 
 ## Features
 
-- **Split-pane UI** — CodeMirror 6 editor alongside a pdf.js PDF viewer, side by side
+- **Resizable split-pane UI** — project tree + outline, CodeMirror 6 editor, and a pdf.js PDF viewer with draggable splitters
 - **Automatic compiler detection** — finds MiKTeX or TeX Live on startup; guides you to install one if none is found
-- **One-click compile** — press `Ctrl+Enter` or click Compile; streams stdout/stderr to a live Log panel
+- **One-click compile** — press `Ctrl+Enter` or click Compile; streams stdout/stderr to a collapsible live Log panel
 - **Bibliography support** — auto-detects `.bib` files and runs BibTeX / Biber as needed
-- **Bidirectional SyncTeX** — click in the editor to jump to the PDF; click in the PDF to jump back to the source line
+- **High-resolution PDF viewer** — crisp DPR-aware rendering, lazy page loading, smooth fit-width / fit-page, and zoom by buttons, `Ctrl + wheel`, pinch, or keyboard
+- **Two-click SyncTeX** — select code and press **To PDF** to jump and highlight the selection; click the PDF once and press **To code** (or double-click) to jump back
+- **Visual line wrapping** — long code lines wrap to the widget width without inserting hard newlines
+- **Outline widget** — live section navigation under the project tree
+- **LaTeX tools** — offline KaTeX formula editor and viewer, plus an image inserter that copies files into `figures/` and builds `figure` environments
 - **LaTeX autocomplete** — powered by a custom CodeMirror 6 language extension
 - **Project file tree** — browse, create, rename, and delete files from the sidebar
 - **ZIP import / export** — export your project as an Overleaf-compatible `.zip`, or import one directly
 - **Autosave** — never lose a line of work
-- **Dark theme** — a carefully tuned dark palette easy on the eyes during long writing sessions
+- **Dark theme** — a carefully tuned dark palette, supplied icon set, and a fading launch splash
 
 ---
 
@@ -60,7 +64,16 @@ npm install
 
 # Start in development mode
 npm run dev
+
+# Or launch the built app without watchers
+npm start
 ```
+
+`npm run dev` uses `scripts/start-electron.cjs`, which clears the
+`ELECTRON_RUN_AS_NODE` environment variable before launching Electron. Some
+terminals set that variable globally, which otherwise makes `electron .` run as
+a Node script and no window appears. `npm run dev` also stops the watchers when
+the app window closes.
 
 ### Build
 
@@ -72,7 +85,21 @@ npm run build
 npm run dist
 ```
 
-The packaged installer will be output to the `dist/` folder.
+The packaged installer is written to `release/AKTeX-<version>-x64.exe`.
+
+### Installer troubleshooting
+
+The NSIS installer force-closes a running AKTeX copy before upgrading and clears
+read-only attributes on the previous uninstaller files. This prevents the
+typical “Error opening file for writing … uninstallerIcon.ico” and “AKTeX
+cannot be closed” failures. If Windows still reports a locked file:
+
+1. Close AKTeX from Task Manager (`AKTeX.exe`).
+2. Re-run the installer.
+3. The installer now runs per-machine (UAC prompt) and installs to
+   `Program Files\AKTeX`, avoiding per-user AppData ACL/lock problems. If you
+   still see a locked-file error, choose another directory on the installer's
+   directory page.
 
 ---
 
@@ -83,7 +110,9 @@ The packaged installer will be output to the `dist/` folder.
 | Compile | `Ctrl + Enter` |
 | Save | `Ctrl + S` |
 | Find | `Ctrl + F` |
-| Open Project | `Ctrl + O` |
+| PDF zoom in / out / reset | `Ctrl + +` / `Ctrl + -` / `Ctrl + 0` |
+| Code → PDF sync | `Ctrl + Alt + J` |
+| PDF → code sync | `Ctrl + Alt + K` |
 
 ---
 
@@ -97,14 +126,14 @@ aktex/
 │   │   ├── compiler.ts     # Compiler detection & pdflatex / biber runner
 │   │   └── synctex.ts      # SyncTeX bidirectional sync
 │   ├── renderer/           # Renderer process (browser context)
-│   │   ├── index.html
-│   │   ├── editor/         # CodeMirror 6 setup & LaTeX language support
-│   │   ├── pdf/            # pdf.js integration
-│   │   └── ui/             # Toolbar, file tree, theme tokens
+│   │   ├── index.html      # Shell, theme, splash and dialogs
+│   │   ├── editor/         # CodeMirror 6 setup, wrapping, LaTeX support
+│   │   ├── pdf/            # pdf.js viewer (zoom, lazy render, highlights)
+│   │   └── ui/             # Icons, layout splitters, outline, tools, log panel
 │   └── preload/
 │       └── preload.ts      # Secure contextBridge IPC layer
-├── assets/                 # App icons & logo
-├── scripts/
+├── assets/                 # App icons, logos, supplied icon sprite
+├── scripts/                # Renderer build + Electron smoke test
 ├── electron-builder.yml
 ├── package.json
 └── tsconfig.json
@@ -114,7 +143,7 @@ aktex/
 
 ## CI / CD
 
-Every push to `main` triggers a GitHub Actions workflow that compiles the project and attaches a Windows `.exe` installer to the corresponding GitHub Release.
+Every push to `main` and every `v*` tag triggers a GitHub Actions workflow that builds and packages the Windows `.exe` installer. Pushes upload the installer as a workflow artifact; tag builds also attach it to the GitHub Release. The workflow runs `npm ci`, `npm run build`, `npm run package:win`, verifies the installer exists, and publishes with `contents: write` permission.
 
 ---
 
@@ -125,10 +154,17 @@ Every push to `main` triggers a GitHub Actions workflow that compiles the projec
 - [x] Compiler detection (MiKTeX / TeX Live)
 - [x] Async compile flow with live log streaming
 - [x] pdf.js PDF viewer (binary IPC buffer loading)
-- [x] Bidirectional SyncTeX
+- [x] Crisp, zoomable PDF viewer (buttons, Ctrl+wheel, pinch, fit width/page)
+- [x] Two-click SyncTeX with PDF selection highlighting
+- [x] Resizable panes, visual code wrapping, outline widget
+- [x] Formula editor/viewer (KaTeX) and image inserter
+- [x] Collapsible log terminal and supplied icon set
+- [x] Launch splash with fade-in
 - [x] Project file tree (create / rename / delete)
 - [x] ZIP import / export (Overleaf-compatible)
 - [x] End-to-end smoke test suite
+- [x] Reliable `npm run dev` launch (clears `ELECTRON_RUN_AS_NODE`)
+- [x] Installer force-closes running copies and recovers locked uninstaller files
 - [ ] Code signing for Windows distribution
 
 ---
