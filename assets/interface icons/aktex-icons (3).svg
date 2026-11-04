@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+
+  <!-- TOOLBAR -->
+
+  <symbol id="new-file" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z"/>
+    <path d="M9 2v4h4"/>
+    <line x1="8" y1="8.5" x2="8" y2="12.5"/>
+    <line x1="6" y1="10.5" x2="10" y2="10.5"/>
+  </symbol>
+
+  <symbol id="folder" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 5a1 1 0 011-1h3.172a1 1 0 01.707.293L8.293 5.7A1 1 0 009 6h4a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1V5z"/>
+  </symbol>
+
+  <symbol id="folder-open" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 5a1 1 0 011-1h3.172a1 1 0 01.707.293L8.293 5.7A1 1 0 009 6h4a1 1 0 011 1v1H2V5z"/>
+    <path d="M2 8h12l-1.5 4.5a1 1 0 01-.95.5H4.45a1 1 0 01-.95-.5L2 8z"/>
+  </symbol>
+
+  <symbol id="save" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+    <path d="M5 2v3.5h6V2"/>
+    <rect x="4.5" y="9" width="7" height="5" rx="0.5"/>
+  </symbol>
+
+  <symbol id="compile" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M4.5 3.2a.8.8 0 011.2-.7l7 4.8a.8.8 0 010 1.4l-7 4.8a.8.8 0 01-1.2-.7V3.2z"/>
+  </symbol>
+
+  <symbol id="stop" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/>
+  </symbol>
+
+  <symbol id="search" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6.5" cy="6.5" r="4"/>
+    <path d="M10 10l3.5 3.5"/>
+  </symbol>
+
+  <symbol id="bib" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 2h8a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/>
+    <path d="M3 5h10"/>
+    <line x1="6" y1="8" x2="10" y2="8"/>
+    <line x1="6" y1="10.5" x2="9" y2="10.5"/>
+  </symbol>
+
+  <symbol id="export" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 2v7.5"/>
+    <path d="M5 7l3 3.5 3-3.5"/>
+    <path d="M2.5 12.5h11"/>
+  </symbol>
+
+  <symbol id="import" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 10.5V3"/>
+    <path d="M5 5.5l3-3.5 3 3.5"/>
+    <path d="M2.5 12.5h11"/>
+  </symbol>
+
+  <symbol id="settings" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="8" cy="8" r="2.3"/>
+    <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.27 1.27M11.33 11.33l1.27 1.27M3.4 12.6l1.27-1.27M11.33 4.67l1.27-1.27"/>
+  </symbol>
+
+  <!-- PDF VIEWER -->
+
+  <symbol id="chevron-left" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 4L6 8l4 4"/>
+  </symbol>
+
+  <symbol id="chevron-right" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 4l4 4-4 4"/>
+  </symbol>
+
+  <symbol id="zoom-out" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6.5" cy="6.5" r="4"/>
+    <path d="M10 10l3.5 3.5"/>
+    <line x1="4.5" y1="6.5" x2="8.5" y2="6.5"/>
+  </symbol>
+
+  <symbol id="zoom-in" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6.5" cy="6.5" r="4"/>
+    <path d="M10 10l3.5 3.5"/>
+    <line x1="6.5" y1="4.5" x2="6.5" y2="8.5"/>
+    <line x1="4.5" y1="6.5" x2="8.5" y2="6.5"/>
+  </symbol>
+
+  <symbol id="synctex" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 5.5h9M8 2.5l3 3-3 3"/>
+    <path d="M14 10.5H5M8 7.5l-3 3 3 3"/>
+  </symbol>
+
+  <!-- FILE TREE -->
+
+  <symbol id="file-tex" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z"/>
+    <path d="M9 2v4h4"/>
+  </symbol>
+
+  <symbol id="file-bib" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z"/>
+    <path d="M9 2v4h4"/>
+    <line x1="5.5" y1="9" x2="10.5" y2="9"/>
+    <line x1="5.5" y1="11" x2="8.5" y2="11"/>
+  </symbol>
+
+  <symbol id="file-pdf" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z"/>
+    <path d="M9 2v4h4"/>
+    <path d="M5 9.5c0-.8.6-1.5 1.5-1.5S8 8.7 8 9.5 7.4 11 6.5 11H5V8"/>
+  </symbol>
+
+  <symbol id="file-image" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+    <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none"/>
+    <path d="M2 11.5l3.5-4 3 3 2-2 3 2.5"/>
+  </symbol>
+
+  <symbol id="close" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <line x1="4.5" y1="4.5" x2="11.5" y2="11.5"/>
+    <line x1="11.5" y1="4.5" x2="4.5" y2="11.5"/>
+  </symbol>
+
+  <symbol id="plus" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <line x1="8" y1="3" x2="8" y2="13"/>
+    <line x1="3" y1="8" x2="13" y2="8"/>
+  </symbol>
+
+</svg>

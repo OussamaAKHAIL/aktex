@@ -428,7 +428,7 @@
       padding: 20px 20px;
       gap: 12px;
       background: #333;
-      touch-action: pan-y
+      touch-action: pan-y pinch-zoom
     }
 
     .pdf-empty {
@@ -446,17 +446,45 @@
 
     .pdf-page-wrapper {
       flex: none;
-      display: flex;
-      justify-content: center
+      position: relative
     }
 
     .pdf-page-canvas {
       display: block;
-      max-width: 100%;
-      height: auto;
       box-shadow: 0 4px 24px rgba(0, 0, 0, .5);
       background: #fff;
-      cursor: crosshair
+      cursor: crosshair;
+      position: relative;
+      z-index: 1
+    }
+
+    /* ── Text selection layer ──────────────────────────────────── */
+    .textLayer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      line-height: 1;
+      text-size-adjust: none;
+      forced-color-adjust: none;
+      transform-origin: 0 0;
+      z-index: 2
+    }
+
+    .textLayer span,
+    .textLayer br {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      cursor: text;
+      transform-origin: 0% 0%
+    }
+
+    .textLayer ::selection {
+      background: rgba(0, 100, 255, 0.25);
+      color: transparent
     }
 
     #log-panel {
