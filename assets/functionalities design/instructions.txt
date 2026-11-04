@@ -1,0 +1,154 @@
+AkTeX — AI Agent Feature Specification
+Overview
+This document is the definitive feature specification for the AkTeX LaTeX IDE's six toolbar-launched tools. It is written for an AI coding agent that must implement each feature faithfully, matching the screenshots provided.
+Each section covers: the purpose of the tool, every UI element, the data model, the LaTeX code it generates, and the behaviour of its Insert / Copy / Close actions.
+Tech context: AkTeX is an Electron app. Tools open as in-app overlay panels (not OS windows). All generated LaTeX is inserted at the current CodeMirror cursor position or copied to the clipboard. Math is previewed using KaTeX (offline, fast). The visual theme is dark (#0a0a0a background, off-white text, golden/amber accents).
+1. Toolbar & Entry Points
+The editor toolbar runs along the top of the code panel. Each button opens one of the tools described in the sections below. Buttons appear in this left-to-right order:
+Icon
+Label
+Action
+↩
+Undo
+Undo last editor action (CodeMirror undo)
+↪
+Redo
+Redo last undone action
+🤖
+AI assistant
+Opens AI writing/completion panel
+✨
+Magic tools
+Contextual LaTeX helpers
+[a+]
+Insert reference
+Reference/citation insertion
+√Σ
+Formula editor
+Opens the Formula Editor dialog (§2)
+Σ☐
+Formula viewer
+Renders selected LaTeX inline as a preview
+⊞
+Table generator
+Opens the Table Generator dialog (§4)
+✏
+Edit
+Inline edit helper
+🏔
+Insert image
+Opens image-insertion dialog
+Ω
+Symbols
+Opens the Symbol Picker panel (§3)
+🔧
+Settings
+Editor/project settings
+←
+Navigate back
+Jump to previous cursor location
+→
+Navigate forward
+Jump to next cursor location
+∨
+More
+Overflow menu for less-used actions
+All tool buttons are icon-only (no text label). Hovering shows a tooltip with the button name. Active/open tools highlight their button.
+2. Formula Editor
+Opened via the √Σ toolbar button. A full-screen overlay dialog for constructing and previewing LaTeX math formulas.
+Tabs: Edit Formula (default) | Recognize from Image (OCR/AI upload).
+Symbol Category Toolbar — horizontal row of category buttons, each with a mini-preview: Symbols, Greeks, Exp & Script, Frac & Del, Integral, Lim & Trig, Set, Brackets & Matrix, Multiline, Font, Size & Space, Mine. Clicking opens a dropdown palette; clicking a snippet inserts it at cursor (selection-aware: selects x then \sqrt{} → \sqrt{x}). Mine = user-saved collection.
+LaTeX Input Area — upper half of dialog; monospace code editor (CodeMirror); shows raw LaTeX; cursor position used by snippet insertions.
+Live Preview Panel — renders the input in real time using KaTeX; displayed below the input in a white box; shows inline error if LaTeX is invalid; updates on each keystroke (debounced ~200 ms).
+Style selector (radio buttons): Block Style → wraps in \[ ... \]; Inline Style → wraps in $ ... $.
+Environment checkbox + dropdown: when checked, wraps in the selected environment (default \[ \]; dropdown: equation, align, gather, etc.).
+Action buttons: Add to My Formula (saves to Mine with name prompt) | Copy (copies final LaTeX to clipboard) | Insert (primary, golden — inserts at cursor and closes).
+Close (×): top-right; discards. Escape key also closes.
+3. Symbol Picker
+Opened via the Omega toolbar button. A floating panel (stays open while editing) for browsing and inserting LaTeX math symbols.
+Search bar -- full-width text input at the top; filters symbols by name or LaTeX command as the user types.
+Category dropdown -- next to the search bar; filters the grid to one category. Categories: Operators (default), Relations, Arrows, Greek lowercase, Greek uppercase, Negations, Delimiters, Misc Math, Letters.
+Symbol grid -- responsive grid (~13 per row). Each button: renders the symbol with KaTeX; shows a tooltip on hover with the LaTeX command (e.g. \pm); on click inserts the LaTeX command at the editor cursor immediately (no Insert button needed). The panel stays open for inserting multiple symbols.
+Close (x): top-right corner. No Insert or Copy buttons -- symbols insert on single click directly.
+4. Table Generator
+Opened via the grid toolbar button. A dialog for building LaTeX tables visually.
+Toolbar (left to right): table presets (3 layout icons) | insert column before/after/delete (3 icons) | merge/split cells (2 icons) | border presets (5 icons: no borders, all borders, outer only, header only, full grid) | column alignment (left / center / right) | undo / redo / clear all.
+Visual grid editor: Column headers show letter labels (A, B, C, D...) and row headers show numbers (1, 2, 3...). Clicking a column header selects the whole column; clicking a row header selects the whole row; clicking a cell selects it; dragging selects a range. Typing in a selected cell enters content. Each cell accepts plain text or LaTeX math.
+Help text below the grid: 'Click on the top of the column or the left side of the row to select the entire column or row. Drag to select multiple cells after selecting a cell.'
+Options row: Center Horizontally (checkbox -- adds \centering) | Formatting (checkbox -- enables bold headers, hlines) | Auto Column Width (checkbox -- uses l vs fixed widths) | Spanning (checkbox -- enables multicolumn/multirow in cells) | Default Table Style (dropdown: plain, booktabs, longtable, etc.).
+Action buttons: Insert (primary, golden) | Copy | Show LaTeX (toggle accordion showing generated code).
+Generated LaTeX example:
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|l|}
+\hline
+A & B & C & D \\\ \hline
+ & & & \\\ \hline
+\end{tabular}
+\end{table}
+5. Function Plotter
+Opened via the plots toolbar button. A two-panel dialog for building pgfplots-based function graphs.
+Left panel -- Plot cards:
+Each plot is a card with: a title row (plot type name, eye-toggle icon for visibility, trash icon to delete) | y = text field (LaTeX expression, e.g. \sin{x}) | a live rendered preview of the function name below the input | color picker dropdown | line style dropdown (solid, dashed, dotted, etc.) | line width dropdown (0.4pt, 0.8pt, 1.2pt, etc.) | x-range row: [min]  <= x <=  [max] (text fields, default value is 'Auto').
+Plot types available from a type selector: Regular Plot (y = f(x)), Parametric, Polar, Coordinates.
+'+ Add Plot' button -- dashed border button at the bottom of the left panel; adds a new plot card.
+Right panel -- Preview: Renders a live pgfplots-style chart of all visible plots. Bottom-right of preview: zoom in (+), zoom out (-), reset (four-corners) icon buttons.
+Bottom options row: Grid checkbox | Legend checkbox | Axes checkbox | tick-label style dropdown ('x and y numbers', 'x only', 'none', etc.).
+Footer buttons: Insert | Copy Code | PGFPlots dropdown (selects pgfplots version/options) | Show LaTeX toggle.
+Generated LaTeX uses pgfplots:
+\begin{tikzpicture}
+\begin{axis}[grid=both, legend pos=outer north east]
+\addplot[color=white, line width=0.8pt, domain=-5:5] {sin(deg(x))};
+\addlegendentry{$\sin x$}
+\end{axis}
+\end{tikzpicture}
+Requires \usepackage{pgfplots} in the document preamble. AkTeX should detect if the package is missing and prompt the user.
+6. Commutative Diagram Editor
+Opened from the toolbar (or as a sub-mode of the Table Generator). A dialog for building tikz-cd commutative diagrams visually.
+Toolbar: layout presets (3 icons) | add column / add row / delete row-or-column (3 icons) | settings gear.
+Node grid: A matrix editor where rows and columns correspond to diagram positions. Column headers show numbers (1, 2, 3...) and row headers show numbers (1, 2, 3...). Each cell is editable and holds a LaTeX math expression (e.g. A, B, C, D or \mathbb{R}). The selected cell is highlighted with a dashed border. Position notation is row,col (e.g. 1,1 = top-left).
+Arrow table (below the grid): Each row defines one arrow.
+Column
+Description
+Eye icon
+Toggle arrow visibility in preview
+From
+Source position dropdown (e.g. 1,1)
+To
+Target position dropdown (e.g. 1,2)
+Style
+Arrow head/tail style dropdown (-->, ->>, >->, hook, Rightarrow, etc.)
+Curve/Out
+Bend or out-angle (straight, bend left 30, bend right 45, etc.)
+Slide/In
+In-angle or shift (straight, shift left, etc.)
+Labels
+'+' button opens a label editor: add above/below label with LaTeX text
+Delete
+Trash icon removes the arrow
+The '+' in the table header row adds a new arrow.
+Right panel -- Live preview: Renders the tikz-cd diagram live (via a local LaTeX-to-SVG render or a tikz-cd JS port). Column and row numbers shown as small purple circles for reference.
+Footer: Insert | Copy Code | 'Add environment' dropdown (default \[ \]; also: equation, none) | Show LaTeX toggle.
+Generated LaTeX example:
+\[
+\begin{tikzcd}
+A \arrow[r] \arrow[d] & B \\\
+C & D
+\end{tikzcd}
+\]
+Requires \usepackage{tikz-cd} in the preamble.
+7. Shared UI Conventions
+These patterns apply uniformly across every tool dialog.
+Visual theme: Background #0a0a0a (near-black), primary text off-white (#e8e6e3), borders #2a2a2a (subtle dark), accent/golden #c8a965 (used for primary buttons and highlights).
+Button styles:
+• Primary (Insert / Insert Code): golden/amber fill, dark text.
+• Secondary (Copy, Copy Code): transparent fill, golden border, golden text.
+• Tertiary (Add to My Formula, Show LaTeX): no border, golden text only.
+Dialog structure: Title bar (tool name, left-aligned) + close X (top right) | content area | footer with action buttons.
+Show LaTeX accordion: present on Table Generator, Function Plotter, and Commutative Diagram. Clicking it expands a read-only code block showing the full generated LaTeX. The user can manually copy from it.
+Insert behaviour: Always inserts at the current cursor position in the CodeMirror editor and then closes the dialog.
+Copy behaviour: Copies to system clipboard; shows a brief 'Copied!' confirmation in place of the button text; does NOT close the dialog.
+Escape / Close (x): Closes the dialog without inserting or modifying the document. No confirmation prompt.
+Package requirements: Tools that require non-standard packages (pgfplots, tikz-cd) should check the document preamble and show a non-blocking warning badge or tooltip if the package is not detected.
+Live preview latency: All live previews debounce user input by ~200-300 ms before re-rendering to avoid excessive computation.
+Accessibility: All icon buttons have aria-label attributes. All inputs have associated labels. Keyboard navigation (Tab / Shift-Tab) cycles through controls within a dialog.
