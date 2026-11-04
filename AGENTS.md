@@ -58,6 +58,7 @@ aktex/
 │   └── functionalities design/# Feature reference screenshots + spec
 ├── scripts/
 │   ├── build-renderer.mjs     # Copies assets, bundles renderer with esbuild
+│   ├── after-pack.cjs         # Embeds the AKTeX icon into the Windows exe (rcedit)
 │   ├── start-electron.cjs     # Clears ELECTRON_RUN_AS_NODE, starts the GUI
 │   └── smoke-test.cjs         # Launches Electron in --smoke-test mode
 ├── AGENTS.md                  # ← you are here
@@ -120,6 +121,10 @@ A friendly dialog points to https://miktex.org when none is found.
 
 - CodeMirror 6 with LaTeX syntax, autocomplete, history, search and
   `EditorView.lineWrapping`. Wrapping is visual only.
+- **Multi-file tabs** — open any number of `.tex`/`.bib`/… files at once and
+  switch between them Chrome-style. Each tab keeps an in-memory buffer
+  (`fileContents`) and autosaves on switch; closing a tab selects its
+  neighbour and falls back to the Welcome screen when no files remain.
 - Draggable splitters resize:
   - sidebar ↔ editor,
   - code editor ↔ PDF pane,
@@ -129,6 +134,8 @@ A friendly dialog points to https://miktex.org when none is found.
 - Double-click a splitter resets it; arrow keys resize when focused.
 - The outline updates on a 420 ms debounce while typing and immediately when a
   file is opened.
+- **Hover-to-preview** — hovering over `$…$` / `\(…\)` / `\[…\]` in the editor
+  shows a KaTeX preview near the cursor.
 
 ### PDF Viewer (`src/renderer/pdf/viewer.ts`)
 
@@ -148,7 +155,9 @@ A friendly dialog points to https://miktex.org when none is found.
   - click the zoom percentage to reset to 100%.
 - Zoom is anchored at the pointer (wheel/pinch) or viewport centre (buttons),
   and page bitmaps are re-rendered crisp after the gesture settles.
-- Text layer enables native PDF text selection and copy.
+- Text layer enables native PDF text selection and copy. A selection drag does
+  **not** arm the PDF→code sync; only a clean click (no drag, empty selection)
+  drops the sync anchor.
 - Scroll position is tracked to update `N / Total` in the toolbar.
 
 Public API:
@@ -189,7 +198,8 @@ Automatic cursor-to-PDF syncing is intentionally removed. Sync is deliberate:
 - For a tighter highlight, the viewer also searches the PDF.js text layer for
   the selected (plain-text) source and draws a DOM Range rectangle over the
   exact characters. The SyncTeX box is used as a fallback when the text cannot
-  be matched (math-heavy or multi-line selections).
+  be matched (math-heavy or multi-line selections). Multi-line selections use
+  the per-line SyncTeX boxes directly, so every selected line is highlighted.
 
 ### Code Tool Strip
 
@@ -215,8 +225,11 @@ update” tooltips.
 `src/renderer/ui/outline.ts` parses `\part`, `\chapter`, `\section`,
 `\subsection`, `\subsubsection`, `\paragraph` and `\subparagraph` (including
 starred forms and optional short titles), ignores comments, and renders an
-indented clickable list under the project tree. Clicking a heading selects and
-scrolls to that line. The panel can be collapsed and resized.
+indented clickable list under the project tree. It is **include-aware**: it
+walks `\input`, `\include` and `\subfile` recursively from the main file, so
+chapters in separate `.tex` files appear in document order. Clicking an entry
+opens the right file (in a tab) and jumps to the heading. The panel can be
+collapsed and resized.
 
 ### Log Terminal
 
@@ -239,6 +252,11 @@ scrolls to that line. The panel can be collapsed and resized.
   from `file://` without CORS issues) and exposes `icon(name)`.
 - The launch splash uses `assets/launching logo.png`, copied to
   `dist/renderer/launching-logo.png`; it fades in and out over the dark shell.
+- The title bar shows the actual `assets/logo.png` wordmark (copied to
+  `dist/renderer/logo.png`), not a text fallback.
+- The packaged `AKTeX.exe` embeds `assets/icon.ico` through the
+  `scripts/after-pack.cjs` rcedit hook, so the taskbar/explorer icon is AKTeX
+  (not Electron's default), while the package stays unsigned.
 
 ### Theme (Claude-inspired dark)
 
@@ -354,7 +372,10 @@ with a sample formula for screenshot checks.
 `electron-builder.yml` sets `signAndEditExecutable: false` because the project is
 unsigned and the `winCodeSign` archive contains macOS symlinks that cannot be
 extracted on Windows without symlink privileges. This keeps CI packaging
-reproducible. The installer still uses `assets/icon.ico` for the NSIS UI.
+reproducible. `afterPack: scripts/after-pack.cjs` then runs `rcedit` to embed
+`assets/icon.ico` (and version strings) into `AKTeX.exe`, so the app icon is
+correct without any signing toolchain. The installer still uses
+`assets/icon.ico` for the NSIS UI.
 
 `assets/installer.nsh` overrides `customCheckAppRunning` to force-close a
 running `AKTeX.exe` / stale uninstaller before installation, and clears
@@ -393,6 +414,14 @@ closed” failures when upgrading over a running copy.
   leaving an invisible process.
 - NSIS installer force-closes running AKTeX copies and recovers read-only
   uninstaller files.
+- Multi-file tabs (Chrome-style switching and closing) with per-tab buffers.
+- Include-aware project outline (`\input` / `\include` / `\subfile`).
+- PDF text selection no longer arms the PDF→code sync.
+- Multi-line SyncTeX highlight highlights every selected line.
+- Formula editor shows a friendly placeholder on invalid LaTeX; hover previews
+  math in the editor.
+- Packaged exe embeds the AKTeX icon via the rcedit afterPack hook.
+- Title bar renders the actual `logo.png` asset.
 
 ### Remaining
 

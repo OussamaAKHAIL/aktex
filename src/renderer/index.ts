@@ -4,6 +4,7 @@ import {
   getCursorLine,
   getEditorContent,
   getEditorSelection,
+  getLineAtCoords,
   getLineText,
   initEditor,
   insertBlockAtCursor,
@@ -36,8 +37,8 @@ import { icon, installIconSprite } from './ui/icons';
 import { initSplash } from './ui/splash';
 import { initLayout, persistOutlineCollapsed, restoreCollapsedState } from './ui/layout';
 import { initLogPanel, openLog, setLogTab } from './ui/logpanel';
-import { OutlineEntry, parseOutline, renderOutline, wireOutlineSelection } from './ui/outline';
-import { openFormulaEditor, openFormulaViewer } from './ui/formula';
+import { OutlineEntry, buildProjectOutline, renderOutline, wireOutlineSelection } from './ui/outline';
+import { extractFormula, hideFormulaHover, openFormulaEditor, openFormulaViewer, showFormulaHover } from './ui/formula';
 import { openImageInserter } from './ui/image-insert';
 
 type LogType = 'info' | 'error' | 'warning';
@@ -98,6 +99,10 @@ let errors = 0;
 let contextFile: FileNode | null = null;
 let pendingPdfTarget: { page: number; x: number; y: number } | null = null;
 let pendingSyncText: string | null = null;
+
+// ── Open files (multi-tab) ───────────────────────────────────────────────────
+const openFiles: string[] = [];
+const fileContents = new Map<string, string>();
 
 function required<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -162,29 +167,33 @@ function setActivePath(label: string): void {
 function renderTabs(): void {
   const tabBar = required<HTMLElement>('tab-bar');
   tabBar.replaceChildren();
-  const tab = document.createElement('button');
-  tab.className = 'tab active';
-  tab.type = 'button';
-  tab.innerHTML = `${icon(activeFile ? iconForFile(activeFile) : 'file-tex', 13)}<span>${escapeHtml(activeFile ? fileName(activeFile) : 'Welcome')}</span>${activeFile ? `<span class="close-tab" title="Close file">×</span>` : ''}`;
-  tab.addEventListener('click', (event) => {
-    const target = event.target as HTMLElement;
-    if (target.classList.contains('close-tab')) {
-      event.stopPropagation();
-      void saveActiveFile().then(() => {
-        activeFile = null;
-        suppressSave = true;
-        setEditorContent('% Welcome to AKTeX\n% Open a project folder to start writing.\n');
-        suppressSave = false;
-        setActivePath('Untitled — AKTeX');
-        renderTabs();
-        refreshTree();
-        refreshOutlineNow();
-      });
-      return;
-    }
-    editor.focus();
-  });
-  tabBar.appendChild(tab);
+
+  if (openFiles.length === 0) {
+    const welcome = document.createElement('div');
+    welcome.className = 'tab active';
+    welcome.innerHTML = `${icon('file-tex', 13)}<span>Welcome</span>`;
+    tabBar.appendChild(welcome);
+    return;
+  }
+
+  for (const filePath of openFiles) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = `tab${filePath === activeFile ? ' active' : ''}`;
+    tab.title = filePath;
+    tab.innerHTML = `${icon(iconForFile(filePath), 13)}<span class="tab-name">${escapeHtml(fileName(filePath))}</span><span class="close-tab" title="Close file" role="button">×</span>`;
+    tab.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement;
+      if (target.classList.contains('close-tab')) {
+        event.stopPropagation();
+        void closeFile(filePath);
+        return;
+      }
+      if (filePath !== activeFile) void activateFile(filePath);
+      else editor.focus();
+    });
+    tabBar.appendChild(tab);
+  }
 }
 
 function renderTree(nodes: FileNode[], depth = 0): DocumentFragment {
@@ -226,25 +235,87 @@ async function openFile(filePath: string): Promise<void> {
     addLog(`Cannot edit ${fileName(filePath)} in the text editor.`, 'warning');
     return;
   }
+  if (openFiles.includes(filePath)) {
+    await activateFile(filePath);
+    return;
+  }
   try {
-    await saveActiveFile();
     const content = await window.aktext.readFile(filePath);
-    activeFile = filePath;
-    suppressSave = true;
-    setEditorContent(content);
-    suppressSave = false;
-    setActivePath(`${fileName(filePath)} — AKTeX`);
-    renderTabs();
-    refreshTree();
-    refreshOutlineNow();
-    editor.focus();
+    fileContents.set(filePath, content);
   } catch (error) {
     addLog(`Could not open ${fileName(filePath)}: ${messageFor(error)}`, 'error');
+    return;
+  }
+
+  await saveActiveFile();
+  openFiles.push(filePath);
+  activeFile = filePath;
+  suppressSave = true;
+  setEditorContent(fileContents.get(filePath) ?? '');
+  suppressSave = false;
+  setActivePath(`${fileName(filePath)} — AKTeX`);
+  renderTabs();
+  refreshTree();
+  void refreshOutlineNow();
+  editor.focus();
+}
+
+async function activateFile(filePath: string): Promise<void> {
+  if (filePath === activeFile) return;
+  await saveActiveFile();
+  let content = fileContents.get(filePath);
+  if (content === undefined) {
+    try {
+      content = await window.aktext.readFile(filePath);
+      fileContents.set(filePath, content);
+    } catch (error) {
+      addLog(`Could not open ${fileName(filePath)}: ${messageFor(error)}`, 'error');
+      void closeFile(filePath);
+      return;
+    }
+  }
+  activeFile = filePath;
+  suppressSave = true;
+  setEditorContent(content);
+  suppressSave = false;
+  setActivePath(`${fileName(filePath)} — AKTeX`);
+  renderTabs();
+  refreshTree();
+  void refreshOutlineNow();
+  editor.focus();
+}
+
+async function closeFile(filePath: string): Promise<void> {
+  const index = openFiles.indexOf(filePath);
+  if (index < 0) return;
+  if (filePath === activeFile) await saveActiveFile();
+  openFiles.splice(index, 1);
+  fileContents.delete(filePath);
+
+  if (filePath !== activeFile) {
+    renderTabs();
+    return;
+  }
+
+  const next = openFiles[Math.min(index, openFiles.length - 1)] ?? null;
+  activeFile = null;
+  if (next) {
+    await activateFile(next);
+  } else {
+    suppressSave = true;
+    setEditorContent('% Welcome to AKTeX\n% Open a project folder to start writing.\n');
+    suppressSave = false;
+    setActivePath('Untitled — AKTeX');
+    renderTabs();
+    refreshTree();
+    void refreshOutlineNow();
+    updateSyncButtons();
   }
 }
 
 function queueSave(): void {
   if (!activeFile || suppressSave) return;
+  fileContents.set(activeFile, getEditorContent());
   if (saveTimer !== null) window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => { void saveActiveFile(); }, 550);
 }
@@ -255,8 +326,10 @@ async function saveActiveFile(): Promise<void> {
     window.clearTimeout(saveTimer);
     saveTimer = null;
   }
+  const content = getEditorContent();
+  fileContents.set(activeFile, content);
   try {
-    await window.aktext.saveFile(activeFile, getEditorContent());
+    await window.aktext.saveFile(activeFile, content);
   } catch (error) {
     addLog(`Could not save ${fileName(activeFile)}: ${messageFor(error)}`, 'error');
   }
@@ -284,21 +357,45 @@ function setOutlineCollapsed(collapsed: boolean, persist = true): void {
   if (persist) persistOutlineCollapsed(collapsed);
 }
 
-function refreshOutlineNow(): void {
-  outlineEntries = parseOutline(getEditorContent());
+async function refreshOutlineNow(): Promise<void> {
+  const rootFile = project?.mainFile ?? activeFile;
+  if (!rootFile) {
+    outlineEntries = [];
+    const count = document.getElementById('outline-count');
+    if (count) count.textContent = '';
+    renderOutline(outlineContent, [], selectOutlineEntry);
+    return;
+  }
+  // Prefer the in-memory buffer for any open (possibly unsaved) file so the
+  // outline stays live while editing; fall back to disk for the rest.
+  const reader = (filePath: string): Promise<string> => {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const open = openFiles.find((candidate) => candidate.replace(/\\/g, '/').toLowerCase() === normalized);
+    if (open && fileContents.has(open)) return Promise.resolve(fileContents.get(open) ?? '');
+    return window.aktext.readFile(filePath);
+  };
+  try {
+    outlineEntries = await buildProjectOutline(rootFile, reader);
+  } catch {
+    outlineEntries = [];
+  }
   const count = document.getElementById('outline-count');
   if (count) count.textContent = outlineEntries.length ? String(outlineEntries.length) : '';
-  renderOutline(outlineContent, outlineEntries, (line) => {
-    revealEditorLine(line);
-    editor.focus();
-  });
+  renderOutline(outlineContent, outlineEntries, selectOutlineEntry);
+}
+
+async function selectOutlineEntry(entry: OutlineEntry): Promise<void> {
+  if (!entry.file) return;
+  await openFile(entry.file);
+  revealEditorLine(entry.line);
+  editor.focus();
 }
 
 function refreshOutlineDebounced(): void {
   if (outlineTimer !== null) window.clearTimeout(outlineTimer);
   outlineTimer = window.setTimeout(() => {
     outlineTimer = null;
-    refreshOutlineNow();
+    void refreshOutlineNow();
   }, 420);
 }
 
@@ -307,11 +404,8 @@ function initOutline(): void {
   setOutlineCollapsed(state.outline, false);
   const collapse = document.getElementById('btn-outline-collapse');
   collapse?.addEventListener('click', () => setOutlineCollapsed(!outlineCollapsed()));
-  wireOutlineSelection(outlineContent, (line) => {
-    revealEditorLine(line);
-    editor.focus();
-  });
-  refreshOutlineNow();
+  wireOutlineSelection(outlineContent, (entry) => { void selectOutlineEntry(entry); });
+  void refreshOutlineNow();
 }
 
 // ── Workspace / project ──────────────────────────────────────────────────────
@@ -321,6 +415,8 @@ async function acceptProject(payload: ProjectPayload): Promise<void> {
   activeFile = null;
   activePdf = null;
   pendingPdfTarget = null;
+  openFiles.length = 0;
+  fileContents.clear();
   refreshTree();
   addLog(`Opened project: ${payload.path}`);
   if (payload.mainFile) {
@@ -331,7 +427,7 @@ async function acceptProject(payload: ProjectPayload): Promise<void> {
     suppressSave = false;
     setActivePath(`${fileName(payload.path)} — AKTeX`);
     renderTabs();
-    refreshOutlineNow();
+    void refreshOutlineNow();
   }
   updateSyncButtons();
 }
@@ -484,18 +580,29 @@ async function executeContextAction(action: string): Promise<void> {
   }
   if (action === 'rename') {
     const file = await window.aktext.renameFile(node.path);
+    if (file) {
+      const index = openFiles.indexOf(node.path);
+      if (index >= 0) {
+        openFiles[index] = file;
+        const content = fileContents.get(node.path);
+        if (content !== undefined) {
+          fileContents.set(file, content);
+          fileContents.delete(node.path);
+        }
+        if (activeFile === node.path) {
+          activeFile = file;
+          setActivePath(`${fileName(file)} — AKTeX`);
+          renderTabs();
+          refreshTree();
+        }
+      } else if (activeFile === node.path) {
+        await openFile(file);
+      }
+    }
     await refreshProject();
-    if (file && node.path === activeFile) await openFile(file);
   }
   if (action === 'delete' && await window.aktext.deleteFile(node.path)) {
-    if (node.path === activeFile) {
-      activeFile = null;
-      suppressSave = true;
-      setEditorContent('');
-      suppressSave = false;
-      renderTabs();
-      refreshOutlineNow();
-    }
+    await closeFile(node.path);
     await refreshProject();
   }
 }
@@ -615,6 +722,33 @@ async function initialise(): Promise<void> {
       onSelectionChange: () => updateSyncButtons(),
     },
   );
+
+  // Hover-to-preview inline math in the editor.
+  let hoverTimer: number | null = null;
+  let hoverLine: number | null = null;
+  editorElement.addEventListener('mousemove', (event) => {
+    if (hoverTimer !== null) window.clearTimeout(hoverTimer);
+    hoverTimer = window.setTimeout(() => {
+      const lineNumber = getLineAtCoords(event.clientX, event.clientY);
+      if (lineNumber === null) {
+        hideFormulaHover();
+        hoverLine = null;
+        return;
+      }
+      if (lineNumber === hoverLine) return;
+      hoverLine = lineNumber;
+      const formula = extractFormula(getLineText(lineNumber));
+      if (formula) showFormulaHover(formula.latex, formula.display, event.clientX, event.clientY);
+      else hideFormulaHover();
+    }, 280);
+  });
+  editorElement.addEventListener('mouseleave', () => {
+    if (hoverTimer !== null) window.clearTimeout(hoverTimer);
+    hoverTimer = null;
+    hoverLine = null;
+    hideFormulaHover();
+  });
+  editorElement.addEventListener('wheel', hideFormulaHover, { passive: true });
 
   initOutline();
   wireUi();
