@@ -173,7 +173,7 @@ Every push to `main` and every `v*` tag triggers a GitHub Actions workflow that 
 
 | | Name | Role |
 |---|---|---|
-| <img src="https://github.com/OussamaAKHAIL.png" width="60"/> | [Oussama AKHAIL](https://github.com/OussamaAKHAIL) | Creator & Lead Developer |
+| <img src="https://github.com/OussamaAKHAIL.png" width="60"/> | [Oussama AK-HAIL](https://github.com/OussamaAKHAIL) | Creator & Lead Developer |
 
 ---
 
