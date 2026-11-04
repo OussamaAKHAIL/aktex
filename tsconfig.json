@@ -9,11 +9,7 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "sourceMap": true,
-    "skipLibCheck": true,
-    "baseUrl": ".",
-    "paths": {
-      "archiver": ["src/types/archiver.d.ts"]
-    }
+    "skipLibCheck": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

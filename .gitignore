@@ -1,6 +1,10 @@
 node_modules/
 dist/
 release/
+.npm-cache/
+.tmp-*/
+.tmp-*
+*.tsbuildinfo
 *.js.map
 *.d.ts
 .DS_Store

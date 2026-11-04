@@ -8,22 +8,38 @@ directories:
 
 files:
   - dist/**/*
-  - node_modules/**/*
+  - assets/icon.png
+  - assets/icon.ico
   - package.json
+  - node_modules/**/*
+  - '!**/*.map'
+  - '!**/*.md'
+  - '!**/{test,tests,__tests__,example,examples}/**'
+
+asar: true
+npmRebuild: false
+compression: normal
 
 win:
   target:
     - target: nsis
       arch:
         - x64
-  icon: assets/icon.png
+  icon: assets/icon.ico
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # The app is unsigned in this repository. Skipping executable editing avoids
+  # the winCodeSign archive (which contains macOS symlinks that cannot always
+  # be extracted on Windows) and keeps the GitHub runner build reproducible.
+  signAndEditExecutable: false
 
 nsis:
   oneClick: false
+  perMachine: false
   allowToChangeInstallationDirectory: true
-  installerIcon: assets/icon.png
-  uninstallerIcon: assets/icon.png
-  installerHeaderIcon: assets/icon.png
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: AKTeX
+  deleteAppDataOnUninstall: false

@@ -1,11 +1,52 @@
 // AKTeX — renderer orchestration. Electron is deliberately accessed only through preload.
 import { EditorView } from '@codemirror/view';
-import { getCursorLine, getEditorContent, initEditor, scrollEditorToLine, setEditorContent, triggerFind } from './editor/editor';
-import { changeScale, getPdfState, loadPdf, scrollToPosition, setSyncTexClickHandler } from './pdf/viewer';
+import {
+  getCursorLine,
+  getEditorContent,
+  getEditorSelection,
+  getLineText,
+  initEditor,
+  insertBlockAtCursor,
+  insertTextAtCursor,
+  openFind,
+  redo,
+  revealEditorLine,
+  setEditorContent,
+  undo,
+} from './editor/editor';
+import {
+  clearSyncMarker,
+  fitPage,
+  fitWidth,
+  getPdfState,
+  loadPdf,
+  PdfSyncPosition,
+  PdfViewState,
+  resetZoom,
+  scrollToPosition,
+  setPageChangeHandler,
+  setSyncTexHandlers,
+  setZoomChangeHandler,
+  showSyncMarker,
+  zoomIn,
+  zoomOut,
+} from './pdf/viewer';
+import { escapeHtml, toast } from './ui/toast';
+import { icon, installIconSprite } from './ui/icons';
+import { initSplash } from './ui/splash';
+import { initLayout, persistOutlineCollapsed, restoreCollapsedState } from './ui/layout';
+import { initLogPanel, openLog, setLogTab } from './ui/logpanel';
+import { OutlineEntry, parseOutline, renderOutline, wireOutlineSelection } from './ui/outline';
+import { openFormulaEditor, openFormulaViewer } from './ui/formula';
+import { openImageInserter } from './ui/image-insert';
 
 type LogType = 'info' | 'error' | 'warning';
+
 interface FileNode { name: string; path: string; isDirectory: boolean; children?: FileNode[]; }
 interface ProjectPayload { path: string; files: FileNode[]; mainFile: string | null; }
+interface ImagePickResult { path: string; name: string; }
+interface ImageImportResult { absolutePath: string; relativePath: string; }
+
 interface AKTeXApi {
   compile(mainFile: string): void;
   stopCompile(): void;
@@ -13,34 +54,50 @@ interface AKTeXApi {
   onCompileDone(callback: (pdfPath: string | null, success: boolean) => void): void;
   onCompilerStatus(callback: (available: boolean, label: string) => void): void;
   getCompilerStatus(): Promise<{ available: boolean; label: string }>;
-  syncToPdf(file: string, line: number): void;
+  syncToPdf(file: string, startLine: number, startCh: number, endLine: number, endCh: number): void;
   syncToEditor(pdfPath: string, page: number, x: number, y: number): void;
   onSyncToEditor(callback: (file: string, line: number) => void): void;
-  onPdfPosition(callback: (page: number, x: number, y: number) => void): void;
-  openProject(): Promise<ProjectPayload | null>; refreshProject(): Promise<ProjectPayload | null>;
+  onSyncTexFailed(callback: (message: string) => void): void;
+  onPdfPosition(callback: (position: PdfSyncPosition) => void): void;
+  openProject(): Promise<ProjectPayload | null>;
+  refreshProject(): Promise<ProjectPayload | null>;
+  getInitialProject(): Promise<ProjectPayload | null>;
   openFile(filePath: string): Promise<string>;
   readFile(filePath: string): Promise<string>;
   readBinaryFile(filePath: string): Promise<Uint8Array>;
   saveFile(filePath: string, content: string): Promise<void>;
-  createFile(directory: string): Promise<string | null>; renameFile(filePath: string): Promise<string | null>; deleteFile(filePath: string): Promise<boolean>;
-  exportZip(): Promise<boolean>; importZip(): Promise<ProjectPayload | null>; openCompilerHelp(): void;
-  closeWindow(): void; minimizeWindow(): void; maximizeWindow(): void;
+  createFile(directory: string): Promise<string | null>;
+  renameFile(filePath: string): Promise<string | null>;
+  deleteFile(filePath: string): Promise<boolean>;
+  pickImage(): Promise<ImagePickResult | null>;
+  importImage(sourcePath: string, projectPath: string | null): Promise<ImageImportResult | null>;
+  exportZip(): Promise<boolean>;
+  importZip(): Promise<ProjectPayload | null>;
+  openCompilerHelp(): void;
+  closeWindow(): void;
+  minimizeWindow(): void;
+  maximizeWindow(): void;
 }
 declare global { interface Window { aktext: AKTeXApi; } }
 
 const editorElement = required<HTMLElement>('editor');
 const treeContent = required<HTMLElement>('tree-content');
+const outlineContent = required<HTMLElement>('outline-content');
 const logScroll = required<HTMLElement>('log-scroll');
 const contextMenu = required<HTMLElement>('context-menu');
+
 let editor: EditorView;
 let project: ProjectPayload | null = null;
 let activeFile: string | null = null;
 let activePdf: string | null = null;
 let suppressSave = false;
 let saveTimer: number | null = null;
-let cursorTimer: number | null = null;
+let outlineTimer: number | null = null;
+let outlineEntries: OutlineEntry[] = [];
 let errors = 0;
 let contextFile: FileNode | null = null;
+let pendingPdfTarget: { page: number; x: number; y: number } | null = null;
+let pendingSyncText: string | null = null;
 
 function required<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -48,37 +105,80 @@ function required<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
-function fileName(filePath: string): string { return filePath.split(/[\\/]/).pop() ?? filePath; }
-function timestamp(): string { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+function fileName(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() ?? filePath;
+}
+
+function timestamp(): string {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function iconForFile(filePath: string): string {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.tex')) return 'file-tex';
+  if (lower.endsWith('.bib')) return 'file-bib';
+  if (lower.endsWith('.pdf')) return 'file-pdf';
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(lower)) return 'file-image';
+  return 'file';
+}
+
+// ── Logging ──────────────────────────────────────────────────────────────────
 
 function addLog(line: string, type: LogType = 'info'): void {
   if (type === 'error') errors += 1;
-  const row = document.createElement('div'); row.className = 'log-line';
-  const time = document.createElement('time'); time.className = 'timestamp'; time.textContent = timestamp();
-  const message = document.createElement('span'); message.className = `log-${type}`; message.textContent = line;
-  row.dataset.type = type; row.append(time, message); logScroll.appendChild(row); logScroll.scrollTop = logScroll.scrollHeight;
+  const row = document.createElement('div');
+  row.className = 'log-line';
+  const time = document.createElement('time');
+  time.className = 'timestamp';
+  time.textContent = timestamp();
+  const message = document.createElement('span');
+  message.className = `log-${type}`;
+  message.textContent = line;
+  row.dataset.type = type;
+  row.append(time, message);
+  logScroll.appendChild(row);
+  logScroll.scrollTop = logScroll.scrollHeight;
   required<HTMLElement>('problem-count').textContent = errors ? `(${errors})` : '';
+  if (type === 'error') openLog();
 }
 
-function clearLog(): void { logScroll.replaceChildren(); errors = 0; required<HTMLElement>('problem-count').textContent = ''; }
+function clearLog(): void {
+  logScroll.replaceChildren();
+  errors = 0;
+  required<HTMLElement>('problem-count').textContent = '';
+}
+
+// ── Tabs and file tree ───────────────────────────────────────────────────────
+
+function setActivePath(label: string): void {
+  required<HTMLElement>('active-path').textContent = label;
+  document.title = label.includes('—') ? label : `${label} — AKTeX`;
+}
 
 function renderTabs(): void {
-  const tabBar = required<HTMLElement>('tab-bar'); tabBar.replaceChildren();
-  const tab = document.createElement('button'); tab.className = 'tab active'; tab.type = 'button';
-  tab.innerHTML = `<span>◇</span><span>${activeFile ? escapeHtml(fileName(activeFile)) : 'Welcome'}</span>${activeFile ? '<span class="close-tab" title="Close file">×</span>' : ''}`;
-  tab.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement;
+  const tabBar = required<HTMLElement>('tab-bar');
+  tabBar.replaceChildren();
+  const tab = document.createElement('button');
+  tab.className = 'tab active';
+  tab.type = 'button';
+  tab.innerHTML = `${icon(activeFile ? iconForFile(activeFile) : 'file-tex', 13)}<span>${escapeHtml(activeFile ? fileName(activeFile) : 'Welcome')}</span>${activeFile ? `<span class="close-tab" title="Close file">×</span>` : ''}`;
+  tab.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement;
     if (target.classList.contains('close-tab')) {
-      e.stopPropagation();
+      event.stopPropagation();
       void saveActiveFile().then(() => {
         activeFile = null;
         suppressSave = true;
         setEditorContent('% Welcome to AKTeX\n% Open a project folder to start writing.\n');
         suppressSave = false;
-        document.title = 'AKTeX';
-        required<HTMLElement>('active-path').textContent = 'AKTeX';
+        setActivePath('Untitled — AKTeX');
         renderTabs();
         refreshTree();
+        refreshOutlineNow();
       });
       return;
     }
@@ -87,18 +187,21 @@ function renderTabs(): void {
   tabBar.appendChild(tab);
 }
 
-function escapeHtml(value: string): string { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
-
 function renderTree(nodes: FileNode[], depth = 0): DocumentFragment {
   const fragment = document.createDocumentFragment();
   for (const node of nodes) {
     const item = document.createElement('div');
     item.className = `tree-item${node.isDirectory ? ' directory' : ''}${node.path === activeFile ? ' active' : ''}`;
-    item.style.setProperty('--indent', `${16 + depth * 14}px`); item.style.paddingLeft = `${16 + depth * 14}px`;
-    const icon = document.createElement('span'); icon.className = 'tree-icon'; icon.textContent = node.isDirectory ? '▾' : node.name.endsWith('.tex') ? '◇' : node.name.endsWith('.bib') ? '▤' : '·';
-    const label = document.createElement('span'); label.textContent = node.name; item.append(icon, label);
+    const indent = 16 + depth * 14;
+    item.style.setProperty('--indent', `${indent}px`);
+    item.style.paddingLeft = `${indent}px`;
+    item.title = node.path;
+    item.innerHTML = `${icon(node.isDirectory ? 'folder' : iconForFile(node.path), 13)}<span class="tree-label">${escapeHtml(node.name)}</span>`;
     if (!node.isDirectory) item.addEventListener('click', () => { void openFile(node.path); });
-    item.addEventListener('contextmenu', (event) => { event.preventDefault(); showContextMenu(event.clientX, event.clientY, node); });
+    item.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      showContextMenu(event.clientX, event.clientY, node);
+    });
     fragment.appendChild(item);
     if (node.isDirectory && node.children) fragment.appendChild(renderTree(node.children, depth + 1));
   }
@@ -107,20 +210,37 @@ function renderTree(nodes: FileNode[], depth = 0): DocumentFragment {
 
 function refreshTree(): void {
   treeContent.replaceChildren();
-  if (!project) { treeContent.innerHTML = '<p class="tree-empty">Open a project to begin.</p>'; return; }
-  const root = document.createElement('div'); root.className = 'tree-item directory'; root.style.paddingLeft = '12px'; root.innerHTML = '<span class="tree-icon">▾</span>';
-  const label = document.createElement('span'); label.textContent = fileName(project.path); root.appendChild(label); treeContent.append(root, renderTree(project.files));
+  if (!project) {
+    treeContent.innerHTML = '<p class="tree-empty">Open a project to begin.</p>';
+    return;
+  }
+  const root = document.createElement('div');
+  root.className = 'tree-item directory';
+  root.style.paddingLeft = '12px';
+  root.innerHTML = `${icon('folder-open', 13)}<span class="tree-label">${escapeHtml(fileName(project.path))}</span>`;
+  treeContent.append(root, renderTree(project.files));
 }
 
 async function openFile(filePath: string): Promise<void> {
-  if (!/\.(tex|bib|sty|cls|txt)$/i.test(filePath)) { addLog(`Cannot edit ${fileName(filePath)} in the text editor.`, 'warning'); return; }
+  if (!/\.(tex|bib|sty|cls|txt)$/i.test(filePath)) {
+    addLog(`Cannot edit ${fileName(filePath)} in the text editor.`, 'warning');
+    return;
+  }
   try {
     await saveActiveFile();
     const content = await window.aktext.readFile(filePath);
-    activeFile = filePath; suppressSave = true; setEditorContent(content); suppressSave = false;
-    document.title = `${fileName(filePath)} — AKTeX`; required<HTMLElement>('active-path').textContent = `${fileName(filePath)} — AKTeX`;
-    renderTabs(); refreshTree(); editor.focus();
-  } catch (error) { addLog(`Could not open ${fileName(filePath)}: ${messageFor(error)}`, 'error'); }
+    activeFile = filePath;
+    suppressSave = true;
+    setEditorContent(content);
+    suppressSave = false;
+    setActivePath(`${fileName(filePath)} — AKTeX`);
+    renderTabs();
+    refreshTree();
+    refreshOutlineNow();
+    editor.focus();
+  } catch (error) {
+    addLog(`Could not open ${fileName(filePath)}: ${messageFor(error)}`, 'error');
+  }
 }
 
 function queueSave(): void {
@@ -131,24 +251,128 @@ function queueSave(): void {
 
 async function saveActiveFile(): Promise<void> {
   if (!activeFile || suppressSave) return;
-  if (saveTimer !== null) { window.clearTimeout(saveTimer); saveTimer = null; }
-  try { await window.aktext.saveFile(activeFile, getEditorContent()); } catch (error) { addLog(`Could not save ${fileName(activeFile)}: ${messageFor(error)}`, 'error'); }
+  if (saveTimer !== null) {
+    window.clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  try {
+    await window.aktext.saveFile(activeFile, getEditorContent());
+  } catch (error) {
+    addLog(`Could not save ${fileName(activeFile)}: ${messageFor(error)}`, 'error');
+  }
 }
+
+// ── Outline ──────────────────────────────────────────────────────────────────
+
+function outlineCollapsed(): boolean {
+  return document.getElementById('outline-section')?.classList.contains('collapsed') ?? false;
+}
+
+function setOutlineCollapsed(collapsed: boolean, persist = true): void {
+  const section = document.getElementById('outline-section');
+  const splitter = document.getElementById('outline-splitter');
+  const button = document.getElementById('btn-outline-collapse');
+  if (!section) return;
+  section.classList.toggle('collapsed', collapsed);
+  splitter?.classList.toggle('hidden', collapsed);
+  if (button) {
+    button.innerHTML = icon(collapsed ? 'chevron-right' : 'chevron-down', 13);
+    button.title = collapsed ? 'Expand outline' : 'Collapse outline';
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-expanded', String(!collapsed));
+  }
+  if (persist) persistOutlineCollapsed(collapsed);
+}
+
+function refreshOutlineNow(): void {
+  outlineEntries = parseOutline(getEditorContent());
+  const count = document.getElementById('outline-count');
+  if (count) count.textContent = outlineEntries.length ? String(outlineEntries.length) : '';
+  renderOutline(outlineContent, outlineEntries, (line) => {
+    revealEditorLine(line);
+    editor.focus();
+  });
+}
+
+function refreshOutlineDebounced(): void {
+  if (outlineTimer !== null) window.clearTimeout(outlineTimer);
+  outlineTimer = window.setTimeout(() => {
+    outlineTimer = null;
+    refreshOutlineNow();
+  }, 420);
+}
+
+function initOutline(): void {
+  const state = restoreCollapsedState();
+  setOutlineCollapsed(state.outline, false);
+  const collapse = document.getElementById('btn-outline-collapse');
+  collapse?.addEventListener('click', () => setOutlineCollapsed(!outlineCollapsed()));
+  wireOutlineSelection(outlineContent, (line) => {
+    revealEditorLine(line);
+    editor.focus();
+  });
+  refreshOutlineNow();
+}
+
+// ── Workspace / project ──────────────────────────────────────────────────────
 
 async function acceptProject(payload: ProjectPayload): Promise<void> {
-  project = payload; activeFile = null; activePdf = null; refreshTree();
+  project = payload;
+  activeFile = null;
+  activePdf = null;
+  pendingPdfTarget = null;
+  refreshTree();
   addLog(`Opened project: ${payload.path}`);
-  if (payload.mainFile) await openFile(payload.mainFile); else { suppressSave = true; setEditorContent('% Create a main.tex file to begin.\n'); suppressSave = false; renderTabs(); }
+  if (payload.mainFile) {
+    await openFile(payload.mainFile);
+  } else {
+    suppressSave = true;
+    setEditorContent('% Create a main.tex file to begin.\n');
+    suppressSave = false;
+    setActivePath(`${fileName(payload.path)} — AKTeX`);
+    renderTabs();
+    refreshOutlineNow();
+  }
+  updateSyncButtons();
 }
 
-async function openProject(): Promise<void> { const payload = await window.aktext.openProject(); if (payload) await acceptProject(payload); }
-async function importProject(): Promise<void> { const payload = await window.aktext.importZip(); if (payload) { await acceptProject(payload); addLog('Imported project archive successfully.'); } }
-async function refreshProject(): Promise<void> { const payload = await window.aktext.refreshProject(); if (payload) { project = payload; refreshTree(); } }
+async function openProject(): Promise<void> {
+  const payload = await window.aktext.openProject();
+  if (payload) await acceptProject(payload);
+}
+
+async function importProject(): Promise<void> {
+  const payload = await window.aktext.importZip();
+  if (payload) {
+    await acceptProject(payload);
+    addLog('Imported project archive successfully.');
+  }
+}
+
+async function refreshProject(): Promise<void> {
+  const payload = await window.aktext.refreshProject();
+  if (payload) {
+    project = payload;
+    refreshTree();
+  }
+}
+
+// ── Compile / PDF ────────────────────────────────────────────────────────────
 
 async function compileDocument(): Promise<void> {
-  if (!activeFile || !activeFile.toLowerCase().endsWith('.tex')) { addLog('Open a .tex document before compiling.', 'error'); return; }
-  const mainFile = project?.mainFile ?? activeFile;
-  await saveActiveFile(); clearLog(); addLog(`Compiling ${fileName(mainFile)}…`); required<HTMLButtonElement>('btn-compile').disabled = true; required<HTMLButtonElement>('btn-stop').disabled = false;
+  if (!activeFile || !activeFile.toLowerCase().endsWith('.tex')) {
+    addLog('Open a .tex document before compiling.', 'error');
+    return;
+  }
+  const target = project?.mainFile ?? activeFile;
+  const mainFile = target.toLowerCase().endsWith('.tex') ? target : activeFile;
+  await saveActiveFile();
+  clearLog();
+  openLog();
+  setLogTab('output');
+  addLog(`Compiling ${fileName(mainFile)}…`);
+  required<HTMLButtonElement>('btn-compile').disabled = true;
+  required<HTMLButtonElement>('btn-stop').disabled = false;
   window.aktext.compile(mainFile);
 }
 
@@ -157,86 +381,306 @@ async function showPdf(pdfPath: string): Promise<void> {
     activePdf = pdfPath;
     const state = await loadPdf(pdfPath);
     updatePdfInfo(state);
-  } catch (error) { addLog(`Could not load PDF preview: ${messageFor(error)}`, 'error'); }
+    updateSyncButtons();
+  } catch (error) {
+    addLog(`Could not load PDF preview: ${messageFor(error)}`, 'error');
+  }
 }
 
-function updatePdfInfo(state: { page: number; pages: number; scale: number }): void {
-  required<HTMLElement>('pdf-page-info').textContent = state.pages ? `${state.pages} pages` : '';
-  required<HTMLElement>('zoom-level').textContent = `${Math.round(state.scale * 100)}%`;
+function updatePdfInfo(state: PdfViewState): void {
+  const pageInfo = document.getElementById('pdf-page-info');
+  if (pageInfo) pageInfo.textContent = state.pages ? `${state.page} / ${state.pages}` : '';
+  const zoom = document.getElementById('zoom-level');
+  if (zoom) zoom.textContent = `${Math.round(state.scale * 100)}%`;
+  const hint = document.getElementById('pdf-sync-hint');
+  if (hint) {
+    if (pendingPdfTarget) {
+      hint.textContent = 'Position set — click “To code” or double-click';
+      hint.classList.add('armed');
+    } else {
+      hint.textContent = activePdf ? 'Click PDF once, then “To code”' : '';
+      hint.classList.remove('armed');
+    }
+  }
+  updateSyncButtons();
 }
 
-function messageFor(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function updateSyncButtons(): void {
+  const codeToPdf = document.getElementById('btn-code-to-pdf') as HTMLButtonElement | null;
+  if (codeToPdf) codeToPdf.disabled = !(activeFile && activeFile.toLowerCase().endsWith('.tex') && activePdf);
+  const pdfToCode = document.getElementById('btn-pdf-to-code') as HTMLButtonElement | null;
+  if (pdfToCode) pdfToCode.disabled = !(pendingPdfTarget && activePdf);
+}
 
-function showContextMenu(x: number, y: number, node: FileNode): void { contextFile = node; contextMenu.style.left = `${x}px`; contextMenu.style.top = `${y}px`; contextMenu.style.display = 'block'; }
-function hideContextMenu(): void { contextMenu.style.display = 'none'; contextFile = null; }
+// ── SyncTeX ──────────────────────────────────────────────────────────────────
+
+function syncSelectionToPdf(): void {
+  if (!activeFile || !activeFile.toLowerCase().endsWith('.tex')) {
+    toast('Open a .tex file before syncing to the PDF.', 'error');
+    return;
+  }
+  if (!activePdf) {
+    toast('Compile the document first, then sync to the PDF.', 'error');
+    return;
+  }
+
+  const selection = getEditorSelection();
+  let target = selection;
+  if (selection.empty) {
+    // A bare cursor highlights its whole source line.
+    const line = selection.fromLine;
+    target = { ...selection, fromCh: 0, toCh: getLineText(line).length };
+  }
+  pendingSyncText = target.text || getLineText(target.fromLine);
+  window.aktext.syncToPdf(activeFile, target.fromLine, target.fromCh, target.toLine, target.toCh);
+}
+
+function syncPdfToCode(): void {
+  if (!pendingPdfTarget) {
+    toast('Click once in the PDF to set the target, then click “To code”.');
+    return;
+  }
+  if (!activePdf) {
+    toast('Compile the document first.', 'error');
+    return;
+  }
+  window.aktext.syncToEditor(activePdf, pendingPdfTarget.page, pendingPdfTarget.x, pendingPdfTarget.y);
+}
+
+function handlePdfClick(page: number, x: number, y: number): void {
+  pendingPdfTarget = { page, x, y };
+  showSyncMarker(page, x, y, 0);
+  updatePdfInfo(getPdfState());
+}
+
+function handlePdfDoubleClick(page: number, x: number, y: number): void {
+  pendingPdfTarget = { page, x, y };
+  updatePdfInfo(getPdfState());
+  syncPdfToCode();
+}
+
+// ── Context menu ─────────────────────────────────────────────────────────────
+
+function showContextMenu(x: number, y: number, node: FileNode): void {
+  contextFile = node;
+  contextMenu.style.left = `${x}px`;
+  contextMenu.style.top = `${y}px`;
+  contextMenu.style.display = 'block';
+}
+
+function hideContextMenu(): void {
+  contextMenu.style.display = 'none';
+  contextFile = null;
+}
 
 async function executeContextAction(action: string): Promise<void> {
-  const node = contextFile; hideContextMenu(); if (!node || !project) return;
-  if (action === 'new') { const file = await window.aktext.createFile(node.isDirectory ? node.path : project.path); await refreshProject(); if (file) await openFile(file); }
-  if (action === 'rename') { const file = await window.aktext.renameFile(node.path); await refreshProject(); if (file && node.path === activeFile) await openFile(file); }
-  if (action === 'delete' && await window.aktext.deleteFile(node.path)) { if (node.path === activeFile) { activeFile = null; suppressSave = true; setEditorContent(''); suppressSave = false; renderTabs(); } await refreshProject(); }
+  const node = contextFile;
+  hideContextMenu();
+  if (!node || !project) return;
+  if (action === 'new') {
+    const file = await window.aktext.createFile(node.isDirectory ? node.path : project.path);
+    await refreshProject();
+    if (file) await openFile(file);
+  }
+  if (action === 'rename') {
+    const file = await window.aktext.renameFile(node.path);
+    await refreshProject();
+    if (file && node.path === activeFile) await openFile(file);
+  }
+  if (action === 'delete' && await window.aktext.deleteFile(node.path)) {
+    if (node.path === activeFile) {
+      activeFile = null;
+      suppressSave = true;
+      setEditorContent('');
+      suppressSave = false;
+      renderTabs();
+      refreshOutlineNow();
+    }
+    await refreshProject();
+  }
 }
+
+async function executeNewFile(directory: string): Promise<void> {
+  const file = await window.aktext.createFile(directory);
+  await refreshProject();
+  if (file) await openFile(file);
+}
+
+// ── Tool actions ─────────────────────────────────────────────────────────────
+
+function insertFormula(latex: string): void {
+  if (latex.startsWith('\\[') || latex.startsWith('\\begin{')) insertBlockAtCursor(latex);
+  else insertTextAtCursor(latex);
+  editor.focus();
+}
+
+function hasGraphicx(): boolean {
+  return /\\usepackage(?:\[[^\]]*\])?\{[^}]*graphicx[^}]*\}/.test(getEditorContent());
+}
+
+function openInsertImage(): void {
+  openImageInserter({
+    projectPath: project?.path ?? null,
+    hasGraphicx,
+    onInsert: (latex) => {
+      insertBlockAtCursor(latex);
+      editor.focus();
+    },
+  });
+}
+
+// ── UI wiring ────────────────────────────────────────────────────────────────
 
 function wireUi(): void {
   required<HTMLButtonElement>('btn-open-project').addEventListener('click', () => { void openProject(); });
   required<HTMLButtonElement>('btn-import-zip').addEventListener('click', () => { void importProject(); });
-  required<HTMLButtonElement>('btn-export-zip').addEventListener('click', () => { void window.aktext.exportZip().then((exported) => { if (exported) addLog('Project exported as a ZIP archive.', 'info'); }); });
+  required<HTMLButtonElement>('btn-export-zip').addEventListener('click', () => {
+    void window.aktext.exportZip().then((exported) => {
+      if (exported) addLog('Project exported as a ZIP archive.', 'info');
+    });
+  });
   required<HTMLButtonElement>('btn-save').addEventListener('click', () => { void saveActiveFile(); });
   required<HTMLButtonElement>('btn-compile').addEventListener('click', () => { void compileDocument(); });
   required<HTMLButtonElement>('btn-stop').addEventListener('click', () => window.aktext.stopCompile());
-  required<HTMLButtonElement>('btn-new').addEventListener('click', () => { if (project) void executeNewFile(project.path); else void openProject(); });
-  required<HTMLButtonElement>('btn-tree-new').addEventListener('click', () => { if (project) void executeNewFile(project.path); });
-  required<HTMLButtonElement>('btn-find').addEventListener('click', () => triggerFind());
+  required<HTMLButtonElement>('btn-new').addEventListener('click', () => {
+    if (project) void executeNewFile(project.path);
+    else void openProject();
+  });
+  required<HTMLButtonElement>('btn-tree-new').addEventListener('click', () => {
+    if (project) void executeNewFile(project.path);
+  });
+  required<HTMLButtonElement>('btn-find').addEventListener('click', () => openFind());
   required<HTMLButtonElement>('btn-compiler-help').addEventListener('click', () => window.aktext.openCompilerHelp());
-  required<HTMLButtonElement>('btn-zoom-out').addEventListener('click', () => { void changeScale(-.1).then(updatePdfInfo); });
-  required<HTMLButtonElement>('btn-zoom-in').addEventListener('click', () => { void changeScale(.1).then(updatePdfInfo); });
+
+  required<HTMLButtonElement>('btn-zoom-out').addEventListener('click', () => updatePdfInfo(zoomOut()));
+  required<HTMLButtonElement>('btn-zoom-in').addEventListener('click', () => updatePdfInfo(zoomIn()));
+  required<HTMLElement>('zoom-level').addEventListener('click', () => updatePdfInfo(resetZoom()));
+  required<HTMLButtonElement>('btn-fit-width').addEventListener('click', () => updatePdfInfo(fitWidth()));
+  required<HTMLButtonElement>('btn-fit-page').addEventListener('click', () => updatePdfInfo(fitPage()));
+
+  required<HTMLButtonElement>('btn-code-to-pdf').addEventListener('click', syncSelectionToPdf);
+  required<HTMLButtonElement>('btn-pdf-to-code').addEventListener('click', syncPdfToCode);
+
+  required<HTMLButtonElement>('btn-editor-undo').addEventListener('click', () => { undo(); editor.focus(); });
+  required<HTMLButtonElement>('btn-editor-redo').addEventListener('click', () => { redo(); editor.focus(); });
+  required<HTMLButtonElement>('btn-formula-editor').addEventListener('click', () => {
+    openFormulaEditor({ onInsert: insertFormula });
+  });
+  required<HTMLButtonElement>('btn-formula-viewer').addEventListener('click', (event) => {
+    const selection = getEditorSelection();
+    const text = selection.empty ? getLineText(getCursorLine()) : selection.text;
+    openFormulaViewer(text, event.currentTarget as HTMLElement);
+  });
+  required<HTMLButtonElement>('btn-image').addEventListener('click', openInsertImage);
+
   document.querySelector('.traffic.close')?.addEventListener('click', () => window.aktext.closeWindow());
   document.querySelector('.traffic.min')?.addEventListener('click', () => window.aktext.minimizeWindow());
   document.querySelector('.traffic.max')?.addEventListener('click', () => window.aktext.maximizeWindow());
-  contextMenu.addEventListener('click', (event) => { const target = event.target; if (target instanceof HTMLButtonElement) void executeContextAction(target.dataset.action ?? ''); });
-  document.querySelectorAll<HTMLButtonElement>('.log-tab').forEach((tab) => tab.addEventListener('click', () => {
-    document.querySelectorAll<HTMLButtonElement>('.log-tab').forEach((other) => other.classList.toggle('active', other === tab));
-    const problemsOnly = tab.dataset.log === 'problems';
-    logScroll.querySelectorAll<HTMLElement>('.log-line').forEach((line) => { line.hidden = problemsOnly && line.dataset.type === 'info'; });
-  }));
+
+  contextMenu.addEventListener('click', (event) => {
+    const target = event.target;
+    if (target instanceof HTMLButtonElement) void executeContextAction(target.dataset.action ?? '');
+  });
+
   document.addEventListener('click', hideContextMenu);
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey && event.key === 'Enter') { event.preventDefault(); void compileDocument(); }
     if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); void saveActiveFile(); }
-    if (event.ctrlKey && event.key.toLowerCase() === 'f') { event.preventDefault(); triggerFind(); }
+    if (event.ctrlKey && event.key.toLowerCase() === 'f') { event.preventDefault(); openFind(); }
+    if (event.ctrlKey && (event.key === '=' || event.key === '+')) { event.preventDefault(); updatePdfInfo(zoomIn()); }
+    if (event.ctrlKey && event.key === '-') { event.preventDefault(); updatePdfInfo(zoomOut()); }
+    if (event.ctrlKey && event.key === '0') { event.preventDefault(); updatePdfInfo(resetZoom()); }
+    if (event.ctrlKey && event.altKey && event.key.toLowerCase() === 'j') { event.preventDefault(); syncSelectionToPdf(); }
+    if (event.ctrlKey && event.altKey && event.key.toLowerCase() === 'k') { event.preventDefault(); syncPdfToCode(); }
     if (event.key === 'Escape') hideContextMenu();
   });
 }
 
-async function executeNewFile(directory: string): Promise<void> { const file = await window.aktext.createFile(directory); await refreshProject(); if (file) await openFile(file); }
+// ── Initialisation ───────────────────────────────────────────────────────────
 
-function initialise(): void {
-  editor = initEditor(editorElement, '% Welcome to AKTeX\n% Open a project folder to start writing.\n', queueSave, (line) => {
-    if (!activeFile) return;
-    if (cursorTimer !== null) window.clearTimeout(cursorTimer);
-    cursorTimer = window.setTimeout(() => window.aktext.syncToPdf(activeFile as string, line), 350);
+async function initialise(): Promise<void> {
+  installIconSprite();
+  initSplash();
+  initLayout();
+  initLogPanel();
+
+  editor = initEditor(
+    editorElement,
+    '% Welcome to AKTeX\n% Open a project folder to start writing.\n',
+    {
+      onChange: () => {
+        queueSave();
+        refreshOutlineDebounced();
+      },
+      onSelectionChange: () => updateSyncButtons(),
+    },
+  );
+
+  initOutline();
+  wireUi();
+
+  setPageChangeHandler((page, pages) => updatePdfInfo({ page, pages, scale: getPdfState().scale }));
+  setZoomChangeHandler((state) => updatePdfInfo(state));
+  setSyncTexHandlers({
+    onClick: handlePdfClick,
+    onDoubleClick: handlePdfDoubleClick,
   });
-  renderTabs(); wireUi();
-
-  // SyncTeX: PDF click → editor (uses new API, no canvas arg needed)
-  setSyncTexClickHandler((page, x, y) => { if (activePdf) window.aktext.syncToEditor(activePdf, page, x, y); });
 
   window.aktext.onCompileLog(addLog);
   window.aktext.onCompileDone((pdfPath, success) => {
     required<HTMLButtonElement>('btn-compile').disabled = false;
     required<HTMLButtonElement>('btn-stop').disabled = true;
-    if (success && pdfPath) { addLog(`✓ Compilation successful — Output: ${fileName(pdfPath)}`, 'info'); void showPdf(pdfPath); }
-    else addLog('✗ Compilation failed. See errors above.', 'error');
+    if (success && pdfPath) {
+      addLog(`✓ Compilation successful — Output: ${fileName(pdfPath)}`, 'info');
+      void showPdf(pdfPath);
+    } else {
+      addLog('✗ Compilation failed. See errors above.', 'error');
+      openLog();
+      setLogTab('problems');
+    }
   });
-  const setCompilerStatus = (available: boolean, label: string): void => { required<HTMLElement>('compiler-label').textContent = label; required<HTMLElement>('status-dot').className = `status-dot ${available ? 'ready' : 'error'}`; };
+
+  const setCompilerStatus = (available: boolean, label: string): void => {
+    required<HTMLElement>('compiler-label').textContent = label;
+    required<HTMLElement>('status-dot').className = `status-dot ${available ? 'ready' : 'error'}`;
+  };
   window.aktext.onCompilerStatus(setCompilerStatus);
   void window.aktext.getCompilerStatus().then((status) => setCompilerStatus(status.available, status.label));
+
   window.aktext.onSyncToEditor((file, line) => {
-    const norm = (p: string | null): string => (p ?? '').replace(/\\/g, '/').toLowerCase();
-    if (norm(file) === norm(activeFile)) { scrollEditorToLine(line); }
-    else { void openFile(file).then(() => scrollEditorToLine(line)); }
+    const norm = (value: string | null): string => (value ?? '').replace(/\\/g, '/').toLowerCase();
+    pendingPdfTarget = null;
+    clearSyncMarker();
+    if (norm(file) === norm(activeFile)) {
+      revealEditorLine(line);
+      editor.focus();
+    } else {
+      void openFile(file).then(() => {
+        revealEditorLine(line);
+        editor.focus();
+      });
+    }
+    updatePdfInfo(getPdfState());
   });
-  window.aktext.onPdfPosition((page, x, y) => { void scrollToPosition(page, x, y).then(() => updatePdfInfo(getPdfState())); });
+
+  window.aktext.onSyncTexFailed((message) => toast(message, 'error'));
+
+  window.aktext.onPdfPosition((position: PdfSyncPosition) => {
+    const sourceText = pendingSyncText ?? undefined;
+    pendingSyncText = null;
+    void scrollToPosition(position.page, position.x, position.y, position.boxes, sourceText)
+      .then(() => updatePdfInfo(getPdfState()));
+  });
+
+  renderTabs();
+  updateSyncButtons();
+
+  try {
+    const initial = await window.aktext.getInitialProject();
+    if (initial) await acceptProject(initial);
+  } catch (error) {
+    addLog(`Could not open the startup project: ${messageFor(error)}`, 'error');
+  }
 }
 
-initialise();
+void initialise();

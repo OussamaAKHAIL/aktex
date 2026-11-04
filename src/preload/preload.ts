@@ -14,6 +14,16 @@ export interface ProjectPayload {
   mainFile: string | null;
 }
 
+export interface ImagePickResult {
+  path: string;
+  name: string;
+}
+
+export interface ImageImportResult {
+  absolutePath: string;
+  relativePath: string;
+}
+
 export type LogType = 'info' | 'error' | 'warning';
 
 contextBridge.exposeInMainWorld('aktext', {
@@ -29,16 +39,36 @@ contextBridge.exposeInMainWorld('aktext', {
     ipcRenderer.on('compiler:status', (_event, data: { available: boolean; label: string }) => callback(data.available, data.label));
   },
   getCompilerStatus: (): Promise<{ available: boolean; label: string }> => ipcRenderer.invoke('compiler:status-get'),
-  syncToPdf: (file: string, line: number): void => ipcRenderer.send('synctex:toPdf', { file, line }),
-  syncToEditor: (pdfPath: string, page: number, x: number, y: number): void => ipcRenderer.send('synctex:toEditor', { pdfPath, page, x, y }),
+  syncToPdf: (file: string, startLine: number, startCh: number, endLine: number, endCh: number): void =>
+    ipcRenderer.send('synctex:toPdf', { file, startLine, startCh, endLine, endCh }),
+  syncToEditor: (pdfPath: string, page: number, x: number, y: number): void =>
+    ipcRenderer.send('synctex:toEditor', { pdfPath, page, x, y }),
   onSyncToEditor: (callback: (file: string, line: number) => void): void => {
     ipcRenderer.on('synctex:toEditor', (_event, data: { file: string; line: number }) => callback(data.file, data.line));
   },
-  onPdfPosition: (callback: (page: number, x: number, y: number) => void): void => {
-    ipcRenderer.on('synctex:pdfPosition', (_event, data: { page: number; x: number; y: number }) => callback(data.page, data.x, data.y));
+  onSyncTexFailed: (callback: (message: string) => void): void => {
+    ipcRenderer.on('synctex:failed', (_event, data: { message: string }) => callback(data.message));
+  },
+  onPdfPosition: (callback: (position: {
+    page: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    boxes: Array<{ page: number; x: number; y: number; width: number; height: number }>;
+  }) => void): void => {
+    ipcRenderer.on('synctex:pdfPosition', (_event, data: {
+      page: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      boxes: Array<{ page: number; x: number; y: number; width: number; height: number }>;
+    }) => callback(data));
   },
   openProject: (): Promise<ProjectPayload | null> => ipcRenderer.invoke('project:open'),
   refreshProject: (): Promise<ProjectPayload | null> => ipcRenderer.invoke('project:refresh'),
+  getInitialProject: (): Promise<ProjectPayload | null> => ipcRenderer.invoke('project:current'),
   openFile: (filePath: string): Promise<string> => ipcRenderer.invoke('file:open', { path: filePath }),
   readFile: (filePath: string): Promise<string> => ipcRenderer.invoke('file:read', filePath),
   readBinaryFile: (filePath: string): Promise<Uint8Array> => ipcRenderer.invoke('file:read-binary', filePath),
@@ -46,6 +76,9 @@ contextBridge.exposeInMainWorld('aktext', {
   createFile: (directory: string): Promise<string | null> => ipcRenderer.invoke('file:create', directory),
   renameFile: (filePath: string): Promise<string | null> => ipcRenderer.invoke('file:rename', filePath),
   deleteFile: (filePath: string): Promise<boolean> => ipcRenderer.invoke('file:delete', filePath),
+  pickImage: (): Promise<ImagePickResult | null> => ipcRenderer.invoke('image:pick'),
+  importImage: (sourcePath: string, projectPath: string | null): Promise<ImageImportResult | null> =>
+    ipcRenderer.invoke('image:import', { sourcePath, projectPath }),
   exportZip: (): Promise<boolean> => ipcRenderer.invoke('project:export-zip'),
   importZip: (): Promise<ProjectPayload | null> => ipcRenderer.invoke('project:import-zip'),
   openCompilerHelp: (): void => ipcRenderer.send('compiler:install-help'),

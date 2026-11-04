@@ -7,9 +7,20 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+
+concurrency:
+  group: aktex-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      CI: 'true'
 
     steps:
       - name: Checkout
@@ -22,29 +33,39 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
-        
-      - name: Install type definitions        # ← add this
-        run: npm install --save-dev @types/archiver
-        
-      - name: Build TypeScript
+        run: npm ci --no-audit --no-fund
+
+      - name: Build renderer and main process
         run: npm run build
 
-      - name: Package app
-        run: npm run dist
+      - name: Package Windows installer
+        run: npm run package:win
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+
+      - name: Verify installer output
+        run: |
+          if (-not (Test-Path release\*.exe)) {
+            Write-Error "No installer was produced in release/."
+            Get-ChildItem release -Recurse -ErrorAction SilentlyContinue | Out-String | Write-Host
+            exit 1
+          }
+          Get-ChildItem release\*.exe | Select-Object Name, Length | Format-Table -AutoSize
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: AKTeX-Windows
           path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Create Release
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: release/*.exe
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
