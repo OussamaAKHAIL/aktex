@@ -34,8 +34,12 @@ win:
 
 nsis:
   oneClick: false
-  perMachine: false
+  # A per-machine install avoids per-user AppData ACL/lock problems and gives
+  # the installer the elevation needed to close an elevated AKTeX process.
+  perMachine: true
+  allowElevation: true
   allowToChangeInstallationDirectory: true
+  include: assets/installer.nsh
   installerIcon: assets/icon.ico
   uninstallerIcon: assets/icon.ico
   installerHeaderIcon: assets/icon.ico

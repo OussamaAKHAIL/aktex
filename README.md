@@ -64,7 +64,16 @@ npm install
 
 # Start in development mode
 npm run dev
+
+# Or launch the built app without watchers
+npm start
 ```
+
+`npm run dev` uses `scripts/start-electron.cjs`, which clears the
+`ELECTRON_RUN_AS_NODE` environment variable before launching Electron. Some
+terminals set that variable globally, which otherwise makes `electron .` run as
+a Node script and no window appears. `npm run dev` also stops the watchers when
+the app window closes.
 
 ### Build
 
@@ -77,6 +86,20 @@ npm run dist
 ```
 
 The packaged installer is written to `release/AKTeX-<version>-x64.exe`.
+
+### Installer troubleshooting
+
+The NSIS installer force-closes a running AKTeX copy before upgrading and clears
+read-only attributes on the previous uninstaller files. This prevents the
+typical “Error opening file for writing … uninstallerIcon.ico” and “AKTeX
+cannot be closed” failures. If Windows still reports a locked file:
+
+1. Close AKTeX from Task Manager (`AKTeX.exe`).
+2. Re-run the installer.
+3. The installer now runs per-machine (UAC prompt) and installs to
+   `Program Files\AKTeX`, avoiding per-user AppData ACL/lock problems. If you
+   still see a locked-file error, choose another directory on the installer's
+   directory page.
 
 ---
 
@@ -140,6 +163,8 @@ Every push to `main` and every `v*` tag triggers a GitHub Actions workflow that 
 - [x] Project file tree (create / rename / delete)
 - [x] ZIP import / export (Overleaf-compatible)
 - [x] End-to-end smoke test suite
+- [x] Reliable `npm run dev` launch (clears `ELECTRON_RUN_AS_NODE`)
+- [x] Installer force-closes running copies and recovers locked uninstaller files
 - [ ] Code signing for Windows distribution
 
 ---

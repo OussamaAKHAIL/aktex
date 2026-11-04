@@ -27,6 +27,12 @@
 - GitHub Actions packaging: pinned `@types/archiver`, removed the CI-only
   install step, added release permissions, and disabled unsigned executable
   editing so `winCodeSign` symlink extraction cannot break the build.
+- `npm run dev` / `npm start` now clear `ELECTRON_RUN_AS_NODE` before launching
+  Electron, so a window always opens; `concurrently -k` stops watchers when the
+  app closes, and startup failures reveal the window instead of staying hidden.
+- NSIS upgrades over a running AKTeX: custom installer hooks force-close the
+  app and stale uninstaller and clear read-only uninstaller files, fixing
+  “Error opening file for writing” and “AKTeX cannot be closed” failures.
 - PDF viewer blurriness and image scaling (device-pixel-ratio rendering).
 - SyncTeX on Windows: forward slashes in argument paths and correct selection
   box parsing.

@@ -87,7 +87,28 @@ function createWindow(): void {
     icon: iconPath,
     title: 'AKTeX',
   });
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  const showWindow = (): void => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+  };
+
+  // `ready-to-show` is the normal path, but a renderer/preload failure should
+  // never leave the user with an invisible application. These fallbacks make
+  // startup problems visible instead of looking like "npm run dev did nothing".
+  mainWindow.once('ready-to-show', showWindow);
+  mainWindow.webContents.once('did-finish-load', () => setTimeout(showWindow, 150));
+  setTimeout(showWindow, 2500);
+
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    console.error(`[AKTeX] Renderer failed to load (${code}): ${description} — ${url}`);
+    showWindow();
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`[AKTeX] Renderer process exited: ${details.reason} (${details.exitCode})`);
+  });
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    console.error(`[AKTeX] Preload failed (${preloadPath}):`, error);
+  });
+
   void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
   const screenshotPath = argumentValue('--screenshot');

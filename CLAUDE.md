@@ -51,12 +51,14 @@ aktex/
 │   ├── icon.png               # Original app icon
 │   ├── icon-512.png           # Square 512×512 app icon
 │   ├── icon.ico               # Windows installer/exe icon
+│   ├── installer.nsh          # NSIS force-close / read-only recovery hooks
 │   ├── launching logo.png     # Splash logo (transparent PNG)
 │   ├── logo.png               # Transparent wordmark
 │   ├── interface icons/       # Supplied SVG icon sprite
 │   └── functionalities design/# Feature reference screenshots + spec
 ├── scripts/
 │   ├── build-renderer.mjs     # Copies assets, bundles renderer with esbuild
+│   ├── start-electron.cjs     # Clears ELECTRON_RUN_AS_NODE, starts the GUI
 │   └── smoke-test.cjs         # Launches Electron in --smoke-test mode
 ├── AGENTS.md                  # ← you are here
 ├── CLAUDE.md                  # Same instructions (kept in sync)
@@ -297,10 +299,23 @@ scrolls to that line. The panel can be collapsed and resized.
 ```bash
 npm install
 npm run build       # tsc --noEmit + main/preload tsc + esbuild renderer
-npm run dev         # watch main/renderer + start Electron
+npm run dev         # watch main/renderer + start Electron, kill all when one exits
+npm start           # launch the built app without watchers
 npm test            # build then run the Electron smoke test (needs a local TeX)
 npm run dist        # build + electron-builder installer
 npm run package:win # electron-builder only (CI uses build + this)
+```
+
+`npm run dev` and `npm start` go through `scripts/start-electron.cjs`, which
+removes `ELECTRON_RUN_AS_NODE` before spawning Electron. Environments that set
+that variable globally otherwise run Electron as a plain Node process and no
+window appears. `npm run dev` uses `concurrently -k` so closing the app also
+stops the TypeScript and renderer watchers.
+
+Extra Electron flags can be supplied for constrained/headless environments:
+
+```bash
+AKTEX_ELECTRON_FLAGS="--no-sandbox --disable-gpu" npm run dev
 ```
 
 `scripts/build-renderer.mjs` copies `index.html`, the PDF worker, KaTeX CSS and
@@ -341,6 +356,15 @@ unsigned and the `winCodeSign` archive contains macOS symlinks that cannot be
 extracted on Windows without symlink privileges. This keeps CI packaging
 reproducible. The installer still uses `assets/icon.ico` for the NSIS UI.
 
+`assets/installer.nsh` overrides `customCheckAppRunning` to force-close a
+running `AKTeX.exe` / stale uninstaller before installation, and clears
+read-only attributes on the uninstaller files. The NSIS target is per-machine
+(`Program Files\AKTeX`, UAC prompt), which avoids per-user AppData ACL/lock
+problems and gives the installer the elevation needed to close an elevated
+AKTeX process. Together this prevents the common “Error opening file for
+writing … uninstallerIcon.ico / Uninstall AKTeX.exe” and “AKTeX cannot be
+closed” failures when upgrading over a running copy.
+
 ## Progress
 
 ### Completed
@@ -364,6 +388,11 @@ reproducible. The installer still uses `assets/icon.ico` for the NSIS UI.
 - Launch fade-in with the supplied launching logo.
 - Smoke test updated for the new UI (compiler, SyncTeX, ZIP, bridge).
 - GitHub Actions packaging fixed and verified locally (NSIS installer builds).
+- `npm run dev` / `npm start` now work even when the environment sets
+  `ELECTRON_RUN_AS_NODE`; startup failures also reveal the window instead of
+  leaving an invisible process.
+- NSIS installer force-closes running AKTeX copies and recovers read-only
+  uninstaller files.
 
 ### Remaining
 
